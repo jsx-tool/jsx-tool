@@ -1,0 +1,34 @@
+import { injectable, inject } from 'tsyringe';
+import { ConfigService } from './config.service';
+
+@injectable()
+export class HtmlInjector {
+  constructor (
+    @inject(ConfigService) private readonly config: ConfigService
+  ) {}
+
+  inject (html: string): string {
+    const config = this.config.getConfig();
+
+    const isValidHtml = html.includes('<!DOCTYPE') && html.includes('<head');
+    if (!isValidHtml) {
+      return html;
+    }
+
+    const script = this.createInjectionScript();
+
+    return html.replace(config.injectAt, script + config.injectAt);
+  }
+
+  private createInjectionScript (): string {
+    const { wsHost, wsPort, wsProtocol } = this.config.getConfig();
+
+    return `
+<script>
+  window.__FM_HOST__ = ${JSON.stringify(wsHost)};
+  window.__FM_WS_PORT__ = ${wsPort};
+  window.__FM_WS_URL__ = '${wsProtocol}://${wsHost}:${wsPort}';
+</script>
+`;
+  }
+}

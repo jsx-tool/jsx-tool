@@ -1,0 +1,55 @@
+{
+  "name": "filemap-dev-server",
+  "version": "0.0.1",
+  "description": "Development server for filemap",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "bin": {
+    "filemap": "./bin/filemap.js"
+  },
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "test": "jest",
+    "test:watch": "jest --watch"
+  },
+  "keywords": [
+    "filemap",
+    "dev-server"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "commander": "^14.0.0",
+    "http-proxy": "^1.18.1",
+    "picocolors": "^1.1.1",
+    "reflect-metadata": "^0.2.2",
+    "tsyringe": "^4.10.0",
+    "ws": "^8.18.2"
+  },
+  "devDependencies": {
+    "@types/commander": "^2.12.0",
+    "@types/http-proxy": "^1.17.16",
+    "@types/jest": "^29.5.11",
+    "@types/node": "^20.17.57",
+    "@types/ws": "^8.18.1",
+    "@typescript-eslint/eslint-plugin": "^6.21.0",
+    "@typescript-eslint/parser": "^6.21.0",
+    "eslint": "^8.57.1",
+    "eslint-config-standard-with-typescript": "^43.0.1",
+    "eslint-plugin-import": "^2.31.0",
+    "eslint-plugin-jest": "^27.9.0",
+    "eslint-plugin-n": "^15.7.0",
+    "eslint-plugin-promise": "^6.6.0",
+    "jest": "^29.7.0",
+    "ts-jest": "^29.1.1",
+    "tsx": "^4.7.0",
+    "typescript": "~5.3.3"
+  },
+  "files": [
+    "dist",
+    "bin"
+  ]
+}
