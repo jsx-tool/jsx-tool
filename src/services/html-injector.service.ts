@@ -25,9 +25,7 @@ export class HtmlInjector {
 
     return `
 <script>
-  window.__FM_HOST__ = ${JSON.stringify(wsHost)};
-  window.__FM_WS_PORT__ = ${wsPort};
-  window.__FM_WS_URL__ = '${wsProtocol}://${wsHost}:${wsPort}';
+  window.__FM_DEV_SERVER_WS_URL__ = '${wsProtocol}://${wsHost}:${wsPort}';
 </script>
 `;
   }

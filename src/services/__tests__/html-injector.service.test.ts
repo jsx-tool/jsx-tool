@@ -25,9 +25,7 @@ describe('HtmlInjector', () => {
 
     const result = htmlInjector.inject(html);
     
-    expect(result).toContain('window.__FM_HOST__');
-    expect(result).toContain('window.__FM_WS_PORT__');
-    expect(result).toContain('window.__FM_WS_URL__');
+    expect(result).toContain('window.__FM_DEV_SERVER_WS_URL__');
     expect(result).toContain('</script>\n</head>');
   });
 

@@ -1,10 +1,11 @@
-import { injectable } from 'tsyringe';
+import { injectable, singleton } from 'tsyringe';
 import { resolve, join } from 'path';
 import { existsSync, readFileSync } from 'fs';
 import type { FilemapConfig } from '../types/config';
 import { DEFAULT_CONFIG } from '../types/config';
 import pc from 'picocolors';
 
+@singleton()
 @injectable()
 export class ConfigService {
   private config: FilemapConfig = { ...DEFAULT_CONFIG };

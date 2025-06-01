@@ -31,9 +31,15 @@ export class WebSocketService {
 
       ws.send(`[filemap] connected over ${wsProtocol}://${wsHost}:${wsPort}`);
 
+
       ws.on('message', (data) => {
         this.logger.debug(`WebSocket received: ${data.toString()}`);
-        // TODO: Handle messages from Chrome extension
+        try {
+          const message = JSON.parse(data.toString());
+          console.log("M", message)
+        } catch(e) {
+
+        }
       });
 
       ws.on('close', () => {
