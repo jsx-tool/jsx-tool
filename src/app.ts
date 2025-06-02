@@ -4,8 +4,6 @@ import { ConfigService } from './services/config.service';
 import { Logger } from './services/logger.service';
 import { ProxyService } from './services/proxy.service';
 import { WebSocketService } from './services/websocket.service';
-import { KeyFetcher } from './services/key-fetcher.service';
-import { KeyManager } from './services/key-manager.service';
 
 @injectable()
 export class Application {
@@ -13,9 +11,7 @@ export class Application {
     @inject(ConfigService) private readonly config: ConfigService,
     @inject(Logger) private readonly logger: Logger,
     @inject(ProxyService) private readonly proxy: ProxyService,
-    @inject(WebSocketService) private readonly ws: WebSocketService,
-    @inject(KeyFetcher) private readonly keyFetcher: KeyFetcher,
-    @inject(KeyManager) private readonly keyManager: KeyManager
+    @inject(WebSocketService) private readonly ws: WebSocketService
   ) {}
 
   async start (): Promise<void> {

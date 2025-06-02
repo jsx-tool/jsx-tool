@@ -1,6 +1,5 @@
-import { injectable, inject } from 'tsyringe';
+import { injectable, inject, singleton } from 'tsyringe';
 import { Logger } from './logger.service';
-import { ConfigService } from './config.service';
 
 export interface KeyData {
   publicKey: string
@@ -9,13 +8,13 @@ export interface KeyData {
 }
 
 @injectable()
+@singleton()
 export class KeyManager {
   private currentKey: KeyData | null = null;
   private expirationTimer: NodeJS.Timeout | null = null;
 
   constructor (
-    @inject(Logger) private readonly logger: Logger,
-    @inject(ConfigService) private readonly config: ConfigService
+    @inject(Logger) private readonly logger: Logger
   ) {}
 
   setKey (keyData: KeyData): boolean {
