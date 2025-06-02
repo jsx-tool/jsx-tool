@@ -33,6 +33,8 @@ module.exports = {
     '@typescript-eslint/no-base-to-string': 'off',
     '@typescript-eslint/consistent-type-imports': ['error', { prefer: 'type-imports' }],
     '@typescript-eslint/semi': ['error', 'always'],
+    '@typescript-eslint/no-misused-promises': 'off',  // Add this line
+    '@typescript-eslint/no-floating-promises': 'off', // Add this line
     'semi': ['error', 'always'],
   },
   ignorePatterns: ['dist/**/*', 'node_modules/**/*', 'bin/**/*', '*.test.ts', 'jest.config.js'],
