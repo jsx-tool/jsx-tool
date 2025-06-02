@@ -1,4 +1,4 @@
-import { injectable } from 'tsyringe';
+import { injectable, singleton } from 'tsyringe';
 import pc from 'picocolors';
 
 export interface ILogger {
@@ -9,6 +9,7 @@ export interface ILogger {
   success: (message: string) => void
 }
 
+@singleton()
 @injectable()
 export class Logger implements ILogger {
   private debugEnabled = false;
