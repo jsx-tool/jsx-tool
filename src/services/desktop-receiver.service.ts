@@ -11,10 +11,10 @@ export class DesktopReceiverService {
 
   public handleMessage (msg: any, sock: Socket): void {
     if (msg?.event === 'filemap-client-up') {
-      const key = this.keyManager.getCurrentKey();
-      if (key) {
+      const uuidData = this.keyManager.getCurrentUuid();
+      if (uuidData) {
         sock.write(
-          JSON.stringify({ event: 'register_uuid', data: key }) + '\n'
+          JSON.stringify({ event: 'register_uuid', data: uuidData }) + '\n'
         );
       }
     }

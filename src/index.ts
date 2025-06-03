@@ -4,6 +4,7 @@ import { Command } from 'commander';
 import { Application } from './app';
 import { ConfigService } from './services/config.service';
 import { Logger } from './services/logger.service';
+import { WorkingDirectoryValidationService } from './services/working-directory-validation.service';
 import pc from 'picocolors';
 
 async function main () {
@@ -29,8 +30,17 @@ async function main () {
     .action(async (options) => {
       const config = container.resolve(ConfigService);
       const logger = container.resolve(Logger);
+      const workingDirectoryValidationService = container.resolve(WorkingDirectoryValidationService);
 
       logger.setDebug(options.debug);
+
+      const validation = workingDirectoryValidationService.validateWorkingDirectory(options.from);
+
+      if (!validation.isValid) {
+        logger.error('Invalid working directory:');
+        validation.errors.forEach(error => { logger.error(`  • ${error}`); });
+        process.exit(1);
+      }
 
       config.setWorkingDirectory(options.from);
 

@@ -8,6 +8,7 @@ import * as path from 'path';
 
 import { Socket } from 'net';
 import { Logger } from '../logger.service';
+import { DesktopClientRegistryService } from '../desktop-client-registry.service';
 
 export class DesktopReceiverStub {
   setHandler(): void {/* noop */}
@@ -30,7 +31,8 @@ describe('FilemapDesktopSocketService', () => {
   function createSvc(): FilemapDesktopSocketService {
     const receiver = new DesktopReceiverStub() as any;
     const logger = new Logger() as any;
-    const s       = new FilemapDesktopSocketService(receiver, logger);
+    const desktopClientRegistryService = new DesktopClientRegistryService() as any;
+    const s = new FilemapDesktopSocketService(receiver, desktopClientRegistryService, logger);
     (s as any).socketPath = socketPath;
     (s as any).init();
     return s;
@@ -113,7 +115,8 @@ describe('FilemapDesktopSocketService', () => {
   it('broadcast does nothing if not connected', () => {
     const receiver = new DesktopReceiverStub() as any;
     const logger = new Logger() as any;
-    svc = new FilemapDesktopSocketService(receiver, logger);
+    const desktopClientRegistryService = new DesktopClientRegistryService() as any;
+    svc = new FilemapDesktopSocketService(receiver, desktopClientRegistryService, logger);
     (svc as any).socketPath  = socketPath;
     (svc as any).client      = null;
     (svc as any)._initialized = true;

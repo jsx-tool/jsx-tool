@@ -7,15 +7,25 @@ export interface KeyData {
   uuid: string
 }
 
+export interface UuidData {
+  expirationTime: string
+  uuid: string
+}
+
 @injectable()
 @singleton()
 export class KeyManager {
   private currentKey: KeyData | null = null;
   private expirationTimer: NodeJS.Timeout | null = null;
+  private readonly keySetListeners: Array<(keyData: KeyData) => void> = [];
 
   constructor (
     @inject(Logger) private readonly logger: Logger
   ) {}
+
+  setListener (listener: (keyData: KeyData) => void): void {
+    this.keySetListeners.push(listener);
+  }
 
   setKey (keyData: KeyData): boolean {
     const expirationTime = new Date(keyData.expirationTime);
@@ -32,6 +42,7 @@ export class KeyManager {
 
     this.currentKey = keyData;
     this.logger.success(`Key ${keyData.uuid} set successfully`);
+    this.keySetListeners.forEach(listener => { listener(keyData); });
 
     const timeUntilExpiration = expirationTime.getTime() - now.getTime();
     this.expirationTimer = setTimeout(() => {
@@ -57,6 +68,16 @@ export class KeyManager {
 
   getCurrentKey (): KeyData | null {
     return this.currentKey;
+  }
+
+  getCurrentUuid (): UuidData | null {
+    if (!this.currentKey?.uuid) {
+      return null;
+    }
+    return {
+      uuid: this.currentKey.uuid,
+      expirationTime: this.currentKey.expirationTime
+    };
   }
 
   hasValidKey (): boolean {

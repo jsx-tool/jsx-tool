@@ -7,6 +7,7 @@ import * as path from 'path';
 
 import { DesktopReceiverService } from './desktop-receiver.service';
 import { Logger } from './logger.service';
+import { DesktopClientRegistryService } from './desktop-client-registry.service';
 
 @singleton()
 @injectable()
@@ -24,6 +25,7 @@ export class FilemapDesktopSocketService {
 
   constructor (
     @inject(DesktopReceiverService) private readonly receiver: DesktopReceiverService,
+    @inject(DesktopClientRegistryService) private readonly registry: DesktopClientRegistryService,
     @inject(Logger) private readonly logger: Logger
   ) {
     this.socketPath = getSocketPath();
@@ -110,11 +112,18 @@ export class FilemapDesktopSocketService {
 
     this.server = createServer((socket) => {
       this.clients.add(socket);
+      this.registry.add(socket);
       socket.on('data', (chunk) => {
         this.handleData(chunk, socket);
       });
-      socket.on('close', () => this.clients.delete(socket));
-      socket.on('error', () => this.clients.delete(socket));
+      socket.on('close', () => {
+        this.clients.delete(socket);
+        this.registry.remove(socket);
+      });
+      socket.on('error', () => {
+        this.clients.delete(socket);
+        this.registry.remove(socket);
+      });
     });
 
     this.server.listen(this.socketPath, () => { this.isServer = true; });
