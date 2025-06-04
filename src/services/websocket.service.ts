@@ -16,8 +16,9 @@ import {
   FileSystemApiService
 } from './file-system-api.service';
 import { DesktopClientRegistryService } from './desktop-client-registry.service';
+import { DesktopEmitterService } from './desktop-emitter.service';
 
-interface RequestParamMap {
+export interface RequestParamMap {
   read_file: { filePath: string }
   write_file: { filePath: string, content: string, encoding?: BufferEncoding }
   exists: { filePath: string }
@@ -32,9 +33,14 @@ interface RequestParamMap {
   tree: {
     filePath: string
   }
+  open_element: {
+    file_path: string
+    line_number: number
+    column_number: number
+  }
 }
 
-interface EventPayloadMap {
+export interface EventPayloadMap {
   read_file: { filePath: string, response: ReadFileResult }
   write_file: { filePath: string, response: WriteFileResult }
   exists: { filePath: string, response: ExistsResult }
@@ -42,7 +48,7 @@ interface EventPayloadMap {
   tree: { filePath: string, response: TreeResult }
 }
 
-interface WebSocketInboundEvent<K extends keyof RequestParamMap> {
+export interface WebSocketInboundEvent<K extends keyof RequestParamMap> {
   event_name: K
   params: RequestParamMap[K]
   signature: string
@@ -76,7 +82,8 @@ const signedEvents = new Set<keyof RequestParamMap>([
   'write_file',
   'exists',
   'ls',
-  'tree'
+  'tree',
+  'open_element'
 ]);
 
 @singleton()
@@ -85,17 +92,18 @@ export class WebSocketService {
   private wss?: WebSocketServer;
   private readonly clients = new Set<WebSocket>();
 
-  constructor(
+  constructor (
     @inject(ConfigService) private readonly config: ConfigService,
     @inject(Logger) private readonly logger: Logger,
     @inject(KeyFetcher) private readonly keyFetcher: KeyFetcher,
     @inject(KeyManager) private readonly keyManager: KeyManager,
     @inject(DesktopClientRegistryService) private readonly desktopClientRegistryService: DesktopClientRegistryService,
     @inject(SignatureVerifierService) private readonly signatureVerifier: SignatureVerifierService,
-    @inject(FileSystemApiService) private readonly fileSystemApi: FileSystemApiService
+    @inject(FileSystemApiService) private readonly fileSystemApi: FileSystemApiService,
+    @inject(DesktopEmitterService) private readonly desktopEmitterService: DesktopEmitterService
   ) { }
 
-  async start(): Promise<void> {
+  async start (): Promise<void> {
     const { wsPort, wsHost, wsProtocol } = this.config.getConfig();
 
     await new Promise<void>((resolve, reject) => {
@@ -116,7 +124,8 @@ export class WebSocketService {
     this.wss.on('connection', (ws) => {
       this.clients.add(ws);
       this.logger.info('WebSocket client connected');
-      ws.send(`[filemap] connected over ${wsProtocol}://${wsHost}:${wsPort}`);
+
+      ws.send(this.getUnixClientState());
 
       ws.on('message', (data) => {
         this.logger.debug(`WebSocket received: ${data.toString()}`);
@@ -139,7 +148,7 @@ export class WebSocketService {
     );
   }
 
-  async stop(): Promise<void> {
+  async stop (): Promise<void> {
     if (!this.wss) return;
 
     this.keyFetcher.cleanup();
@@ -162,7 +171,7 @@ export class WebSocketService {
     this.logger.info('WebSocket server stopped');
   }
 
-  private handleMessage(data: string, socket: WebSocket): void {
+  private handleMessage (data: string, socket: WebSocket): void {
     try {
       const message: WebSocketMessage = JSON.parse(data);
 
@@ -176,7 +185,13 @@ export class WebSocketService {
         return;
       }
 
-      const { signature, ...signedPayload } = message;
+      const { signature, ...messageWithoutSignature } = message;
+
+      const signedPayload = {
+        event_name: messageWithoutSignature.event_name,
+        params: messageWithoutSignature.params,
+        message_id: messageWithoutSignature.message_id
+      };
 
       if (!this.signatureVerifier.verify(signedPayload, signature)) {
         this.logger.warn('Discarding message with invalid signature');
@@ -243,6 +258,10 @@ export class WebSocketService {
           );
           break;
         }
+        case 'open_element': {
+          this.desktopEmitterService.forwardMessage(message);
+          break;
+        }
       }
     } catch (err) {
       this.logger.error(
@@ -266,7 +285,7 @@ export class WebSocketService {
     return JSON.stringify(msg);
   }
 
-  private handleKeyRegistered(message: WebSocketInitMessage): void {
+  private handleKeyRegistered (message: WebSocketInitMessage): void {
     if (!message.uuid) {
       this.logger.error('Key registered event missing UUID');
       return;
@@ -275,32 +294,38 @@ export class WebSocketService {
     this.keyFetcher.startFetching(message.uuid);
   }
 
-  broadcast(message: string): void {
+  broadcast (message: string): void {
     this.clients.forEach((c) => {
       if (c.readyState === WebSocket.OPEN) c.send(message);
     });
   }
 
-  public broadcastKeyReady(uuid: string) {
+  public broadcastKeyReady (uuid: string) {
     this.broadcast(JSON.stringify({
       event_name: 'key_ready',
-      unix_connection_count: this.desktopClientRegistryService.count,
+      unix_connection_count: this.desktopClientRegistryService.count(),
+      unix_utilized_apis: this.desktopClientRegistryService.utilizedApis(),
       uuid
     }));
   }
 
-  public broadcastUnixConnectionCount() {
-    this.broadcast(JSON.stringify({
-      event_name: 'updated_unix_count',
-      unix_connection_count: this.desktopClientRegistryService.count
-    }));
+  public broadcastUnixConnectionCount () {
+    this.broadcast(this.getUnixClientState());
   }
 
-  getClientCount(): number {
+  private getUnixClientState () {
+    return JSON.stringify({
+      event_name: 'updated_unix_client_state',
+      unix_connection_count: this.desktopClientRegistryService.count(),
+      unix_utilized_apis: this.desktopClientRegistryService.utilizedApis()
+    });
+  }
+
+  getClientCount (): number {
     return this.clients.size;
   }
 
-  getCurrentKeyStatus(): {
+  getCurrentKeyStatus (): {
     hasKey: boolean
     uuid?: string
     expirationTime?: string
@@ -313,7 +338,7 @@ export class WebSocketService {
     };
   }
 
-  getFetcherStatus(): { isActive: boolean, currentUuid?: string } {
+  getFetcherStatus (): { isActive: boolean, currentUuid?: string } {
     const u = this.keyFetcher.getCurrentUuid();
     return { isActive: u !== null, currentUuid: u || undefined };
   }

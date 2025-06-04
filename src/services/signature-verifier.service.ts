@@ -2,6 +2,7 @@ import { injectable, inject, singleton } from 'tsyringe';
 import { createPublicKey, createVerify } from 'crypto';
 import { KeyManager } from './key-manager.service';
 import { Logger } from './logger.service';
+import { ieeeP1363ToDer } from '../utils/signature-format-converter';
 
 @singleton()
 @injectable()
@@ -21,12 +22,13 @@ export class SignatureVerifierService {
 
     try {
       const spkiDer = Buffer.from(keyData.publicKey, 'base64');
-
       const publicKey = createPublicKey({
         key: spkiDer,
         format: 'der',
         type: 'spki'
       });
+
+      const derSignature = ieeeP1363ToDer(signatureB64);
 
       const data = Buffer.from(JSON.stringify(payload));
 
@@ -34,7 +36,7 @@ export class SignatureVerifierService {
       verifier.update(data);
       verifier.end();
 
-      const ok = verifier.verify(publicKey, signatureB64, 'base64');
+      const ok = verifier.verify(publicKey, derSignature, 'base64');
 
       if (!ok) this.logger.warn('Signature verification failed');
       return ok;
