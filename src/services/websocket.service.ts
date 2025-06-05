@@ -7,45 +7,105 @@ import { KeyManager } from './key-manager.service';
 import { SignatureVerifierService } from './signature-verifier.service';
 import type {
   ExistsResult,
+  LsArgs,
   LsResult,
+  ProjectInfo,
+  ReadFileArgs,
   ReadFileResult,
   TreeResult,
+  WriteFileArgs,
   WriteFileResult
 } from './file-system-api.service';
 import {
   FileSystemApiService
 } from './file-system-api.service';
+import type { AvailableApis } from './desktop-client-registry.service';
 import { DesktopClientRegistryService } from './desktop-client-registry.service';
 import { DesktopEmitterService } from './desktop-emitter.service';
 
 export interface RequestParamMap {
-  read_file: { filePath: string }
-  write_file: { filePath: string, content: string, encoding?: BufferEncoding }
-  exists: { filePath: string }
-  ls: {
+  read_file: ReadFileArgs
+  write_file: WriteFileArgs
+  exists: {
     filePath: string
-    options?: {
-      recursive?: boolean
-      filesOnly?: boolean
-      directoriesOnly?: boolean
-    }
   }
+  ls: LsArgs
   tree: {
     filePath: string
+  }
+  read_file_many: {
+    files: ReadFileArgs[]
+  }
+  write_file_many: {
+    files: WriteFileArgs[]
+  }
+  exists_many: {
+    paths: string[]
+  }
+  ls_many: {
+    dirs: LsArgs[]
+  }
+  tree_many: {
+    dirPaths: string[]
   }
   open_element: {
     file_path: string
     line_number: number
     column_number: number
   }
+  // event api
+  get_project_info: unknown
+  get_unix_client_info: unknown
 }
 
 export interface EventPayloadMap {
-  read_file: { filePath: string, response: ReadFileResult }
-  write_file: { filePath: string, response: WriteFileResult }
-  exists: { filePath: string, response: ExistsResult }
-  ls: { filePath: string, response: LsResult }
-  tree: { filePath: string, response: TreeResult }
+  read_file: {
+    filePath: string
+    response: ReadFileResult
+  }
+  write_file: {
+    filePath: string
+    response: WriteFileResult
+  }
+  exists: {
+    filePath: string
+    response: ExistsResult
+  }
+  ls: {
+    filePath: string
+    response: LsResult
+  }
+  tree: {
+    filePath: string
+    response: TreeResult
+  }
+  read_file_many: {
+    files: ReadFileArgs[]
+    responses: ReadFileResult[]
+  }
+  write_file_many: {
+    files: WriteFileArgs[]
+    responses: WriteFileResult[]
+  }
+  exists_many: {
+    paths: string[]
+    responses: ExistsResult[]
+  }
+  ls_many: {
+    dirs: LsArgs[]
+    responses: LsResult[]
+  }
+  tree_many: {
+    dirPaths: string[]
+    responses: TreeResult[]
+  }
+  get_project_info: {
+    projectInfo: ProjectInfo
+  }
+  get_unix_client_info: {
+    unixConnectionCount: number
+    utilizedApis: AvailableApis[]
+  }
 }
 
 export interface WebSocketInboundEvent<K extends keyof RequestParamMap> {
@@ -83,7 +143,14 @@ const signedEvents = new Set<keyof RequestParamMap>([
   'exists',
   'ls',
   'tree',
-  'open_element'
+  'read_file_many',
+  'write_file_many',
+  'exists_many',
+  'ls_many',
+  'tree_many',
+  'open_element',
+  'get_project_info',
+  'get_unix_client_info'
 ]);
 
 @singleton()
@@ -111,12 +178,16 @@ export class WebSocketService {
       this.wss.once('error', reject);
     });
 
-    this.keyManager.setListener((keyData) => {
-      this.broadcastKeyReady(keyData.uuid);
+    this.keyManager.setListener((_keyData) => {
+      this.broadcastKeyReady();
     });
 
     this.desktopClientRegistryService.addUnixClientsChangedListener(() => {
-      this.broadcastUnixConnectionCount();
+      this.broadcastUnixConnectionsChanged();
+    });
+
+    this.fileSystemApi.setListener(() => {
+      this.broadcastProjectInfoChanged();
     });
 
     if (!this.wss) return;
@@ -124,8 +195,6 @@ export class WebSocketService {
     this.wss.on('connection', (ws) => {
       this.clients.add(ws);
       this.logger.info('WebSocket client connected');
-
-      ws.send(this.getUnixClientState());
 
       ws.on('message', (data) => {
         this.logger.debug(`WebSocket received: ${data.toString()}`);
@@ -235,12 +304,12 @@ export class WebSocketService {
         }
         case 'ls': {
           const res = this.fileSystemApi.ls(
-            message.params.filePath,
+            message.params.dirPath,
             message.params.options
           );
           socket.send(
             this.serializeResponseMessage(message, {
-              filePath: message.params.filePath,
+              filePath: message.params.dirPath,
               response: res
             })
           );
@@ -258,8 +327,80 @@ export class WebSocketService {
           );
           break;
         }
+        case 'read_file_many': {
+          const res = this.fileSystemApi.readFileMany(message.params.files);
+          socket.send(
+            this.serializeResponseMessage(message, {
+              files: message.params.files,
+              responses: res
+            })
+          );
+          break;
+        }
+
+        case 'write_file_many': {
+          const res = this.fileSystemApi.writeToFileMany(message.params.files);
+          socket.send(
+            this.serializeResponseMessage(message, {
+              files: message.params.files,
+              responses: res
+            })
+          );
+          break;
+        }
+
+        case 'exists_many': {
+          const res = this.fileSystemApi.existsMany(message.params.paths);
+          socket.send(
+            this.serializeResponseMessage(message, {
+              paths: message.params.paths,
+              responses: res
+            })
+          );
+          break;
+        }
+
+        case 'ls_many': {
+          const res = this.fileSystemApi.lsMany(message.params.dirs);
+          socket.send(
+            this.serializeResponseMessage(message, {
+              dirs: message.params.dirs,
+              responses: res
+            })
+          );
+          break;
+        }
+
+        case 'tree_many': {
+          const res = this.fileSystemApi.treeMany(message.params.dirPaths);
+          socket.send(
+            this.serializeResponseMessage(message, {
+              dirPaths: message.params.dirPaths,
+              responses: res
+            })
+          );
+          break;
+        }
         case 'open_element': {
           this.desktopEmitterService.forwardMessage(message);
+          break;
+        }
+        case 'get_project_info': {
+          const projectInfo = this.fileSystemApi.projectInfo();
+          socket.send(
+            this.serializeResponseMessage(message, {
+              projectInfo
+            })
+          );
+          break;
+        }
+        case 'get_unix_client_info': {
+          socket.send(
+            this.serializeResponseMessage(message, {
+              unixConnectionCount: this.desktopClientRegistryService.count(),
+              utilizedApis: this.desktopClientRegistryService.utilizedApis()
+            })
+          );
           break;
         }
       }
@@ -300,24 +441,29 @@ export class WebSocketService {
     });
   }
 
-  public broadcastKeyReady (uuid: string) {
+  public broadcastKeyReady () {
     this.broadcast(JSON.stringify({
-      event_name: 'key_ready',
-      unix_connection_count: this.desktopClientRegistryService.count(),
-      unix_utilized_apis: this.desktopClientRegistryService.utilizedApis(),
-      uuid
+      event_name: 'key_ready'
     }));
   }
 
-  public broadcastUnixConnectionCount () {
-    this.broadcast(this.getUnixClientState());
+  public broadcastUnixConnectionsChanged () {
+    this.broadcast(this.getUnixClientInfoEvent());
   }
 
-  private getUnixClientState () {
+  private getUnixClientInfoEvent () {
     return JSON.stringify({
-      event_name: 'updated_unix_client_state',
-      unix_connection_count: this.desktopClientRegistryService.count(),
-      unix_utilized_apis: this.desktopClientRegistryService.utilizedApis()
+      event_name: 'updated_unix_client_info'
+    });
+  }
+
+  public broadcastProjectInfoChanged () {
+    this.broadcast(this.getProjectInfo());
+  }
+
+  private getProjectInfo () {
+    return JSON.stringify({
+      event_name: 'updated_project_info'
     });
   }
 

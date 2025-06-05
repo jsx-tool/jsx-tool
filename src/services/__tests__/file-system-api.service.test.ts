@@ -6,7 +6,8 @@ jest.mock('path', () => ({
   relative: jest.fn(),
   join: jest.fn(),
   extname: jest.fn(),
-  isAbsolute: jest.fn()
+  isAbsolute: jest.fn(),
+  watch: jest.fn(() => ({ close: jest.fn() })),
 }));
 
 import 'reflect-metadata';
@@ -16,14 +17,63 @@ import { ConfigService } from '../config.service';
 import * as fs from 'fs';
 import * as path from 'path';
 
+function setupMockFileSystem(files: Record<string, string>) {
+  const mockStats = (path: string) => ({
+    isFile: () => !path.endsWith('/') && files[path] !== undefined,
+    isDirectory: () => path.endsWith('/') || Object.keys(files).some(f => f.startsWith(path + '/')),
+    size: files[path]?.length || 0,
+    mtime: new Date('2024-01-01T00:00:00.000Z')
+  });
+
+  jest.spyOn(require('fs'), 'readFileSync').mockImplementation((path) => {
+    const pathStr = (path as fs.PathLike).toString();
+    if (files[pathStr]) {
+      return files[pathStr];
+    }
+    throw new Error(`ENOENT: no such file or directory, open '${pathStr}'`);
+  });
+
+  jest.spyOn(require('fs'), 'existsSync').mockImplementation((path) => {
+    const pathStr = (path as fs.PathLike).toString();
+    return files[pathStr] !== undefined ||
+      Object.keys(files).some(f => f.startsWith(pathStr + '/'));
+  });
+
+  jest.spyOn(require('fs'), 'statSync').mockImplementation((path) => {
+    const pathStr = (path as fs.PathLike).toString();
+    if (!files[pathStr] && !Object.keys(files).some(f => f.startsWith(pathStr + '/'))) {
+      throw new Error(`ENOENT: no such file or directory, stat '${pathStr}'`);
+    }
+    return mockStats(pathStr);
+  });
+
+  jest.spyOn(require('fs'), 'readdirSync').mockImplementation((path) => {
+    const pathStr = (path as fs.PathLike).toString();
+    const prefix = pathStr.endsWith('/') ? pathStr : pathStr + '/';
+
+    const entries = new Set<string>();
+    Object.keys(files).forEach(filePath => {
+      if (filePath.startsWith(prefix)) {
+        const remainder = filePath.substring(prefix.length);
+        const nextSlash = remainder.indexOf('/');
+        const entry = nextSlash === -1 ? remainder : remainder.substring(0, nextSlash);
+        if (entry) entries.add(entry);
+      }
+    });
+
+    return Array.from(entries);
+  });
+}
+
+
 describe('FileSystemApiService', () => {
   let service: FileSystemApiService;
   let mockConfigService: jest.Mocked<ConfigService>;
   const mockWorkingDir = '/project/root';
-  
+
   beforeEach(() => {
     container.clearInstances();
-    
+
     mockConfigService = {
       getConfig: jest.fn().mockReturnValue({ workingDirectory: mockWorkingDir }),
       setWorkingDirectory: jest.fn(),
@@ -31,12 +81,16 @@ describe('FileSystemApiService', () => {
       setFromCliOptions: jest.fn(),
       validate: jest.fn()
     } as any;
-    
+
     container.registerInstance(ConfigService, mockConfigService);
     service = container.resolve(FileSystemApiService);
-    
+
     jest.clearAllMocks();
   });
+
+  afterAll(() => {
+    service.cleanup();
+  })
 
   describe('readFile', () => {
     const mockPath = '/project/root/src/app.tsx';
@@ -44,7 +98,7 @@ describe('FileSystemApiService', () => {
 
     beforeEach(() => {
       const pathMock = path as jest.Mocked<typeof path>;
-      pathMock.resolve.mockImplementation((p) => 
+      pathMock.resolve.mockImplementation((p) =>
         p.startsWith('/') ? p : `/project/root/${p}`
       );
       pathMock.relative.mockImplementation((from, to) => {
@@ -62,9 +116,9 @@ describe('FileSystemApiService', () => {
 
     it('should read allowed file successfully', () => {
       (fs.existsSync as jest.Mock).mockReturnValue(true);
-      (fs.statSync as jest.Mock).mockReturnValue({ 
+      (fs.statSync as jest.Mock).mockReturnValue({
         isFile: () => true,
-        isDirectory: () => false 
+        isDirectory: () => false
       });
       (fs.readFileSync as jest.Mock).mockReturnValue(mockContent);
 
@@ -86,9 +140,9 @@ describe('FileSystemApiService', () => {
 
     it('should fail when path is a directory', () => {
       (fs.existsSync as jest.Mock).mockReturnValue(true);
-      (fs.statSync as jest.Mock).mockReturnValue({ 
+      (fs.statSync as jest.Mock).mockReturnValue({
         isFile: () => false,
-        isDirectory: () => true 
+        isDirectory: () => true
       });
 
       const result = service.readFile('src');
@@ -99,9 +153,9 @@ describe('FileSystemApiService', () => {
 
     it('should fail for disallowed file extensions', () => {
       (fs.existsSync as jest.Mock).mockReturnValue(true);
-      (fs.statSync as jest.Mock).mockReturnValue({ 
+      (fs.statSync as jest.Mock).mockReturnValue({
         isFile: () => true,
-        isDirectory: () => false 
+        isDirectory: () => false
       });
 
       const result = service.readFile('src/app.exe');
@@ -112,9 +166,9 @@ describe('FileSystemApiService', () => {
 
     it('should fail for paths outside working directory', () => {
       (fs.existsSync as jest.Mock).mockReturnValue(true);
-      (fs.statSync as jest.Mock).mockReturnValue({ 
+      (fs.statSync as jest.Mock).mockReturnValue({
         isFile: () => true,
-        isDirectory: () => false 
+        isDirectory: () => false
       });
       (path.relative as jest.Mock).mockReturnValue('../outside/file.js');
 
@@ -126,9 +180,9 @@ describe('FileSystemApiService', () => {
 
     it('should handle read errors gracefully', () => {
       (fs.existsSync as jest.Mock).mockReturnValue(true);
-      (fs.statSync as jest.Mock).mockReturnValue({ 
+      (fs.statSync as jest.Mock).mockReturnValue({
         isFile: () => true,
-        isDirectory: () => false 
+        isDirectory: () => false
       });
       (fs.readFileSync as jest.Mock).mockImplementation(() => {
         throw new Error('Permission denied');
@@ -142,9 +196,9 @@ describe('FileSystemApiService', () => {
 
     it('should support different encodings', () => {
       (fs.existsSync as jest.Mock).mockReturnValue(true);
-      (fs.statSync as jest.Mock).mockReturnValue({ 
+      (fs.statSync as jest.Mock).mockReturnValue({
         isFile: () => true,
-        isDirectory: () => false 
+        isDirectory: () => false
       });
       (fs.readFileSync as jest.Mock).mockReturnValue(Buffer.from(mockContent));
 
@@ -160,7 +214,7 @@ describe('FileSystemApiService', () => {
 
     beforeEach(() => {
       const pathMock = path as jest.Mocked<typeof path>;
-      pathMock.resolve.mockImplementation((p) => 
+      pathMock.resolve.mockImplementation((p) =>
         p.startsWith('/') ? p : `/project/root/${p}`
       );
       pathMock.relative.mockImplementation((from, to) => {
@@ -174,16 +228,16 @@ describe('FileSystemApiService', () => {
         return parts.length > 1 ? `.${parts[parts.length - 1]}` : '';
       });
       pathMock.isAbsolute.mockImplementation((p) => p.startsWith('/'));
-      
+
       (fs.existsSync as jest.Mock).mockReturnValue(true);
-      (fs.statSync as jest.Mock).mockReturnValue({ 
+      (fs.statSync as jest.Mock).mockReturnValue({
         isFile: () => true,
-        isDirectory: () => false 
+        isDirectory: () => false
       });
     });
 
     it('should write to allowed file successfully', () => {
-      (fs.writeFileSync as jest.Mock).mockImplementation(() => {});
+      (fs.writeFileSync as jest.Mock).mockImplementation(() => { });
 
       const result = service.writeToFile('src/new-file.js', mockContent);
 
@@ -226,7 +280,7 @@ describe('FileSystemApiService', () => {
 
     it('should create new files', () => {
       (fs.existsSync as jest.Mock).mockReturnValue(false);
-      (fs.writeFileSync as jest.Mock).mockImplementation(() => {});
+      (fs.writeFileSync as jest.Mock).mockImplementation(() => { });
 
       const result = service.writeToFile('src/new-component.tsx', mockContent);
 
@@ -238,7 +292,7 @@ describe('FileSystemApiService', () => {
   describe('exists', () => {
     beforeEach(() => {
       const pathMock = path as jest.Mocked<typeof path>;
-      pathMock.resolve.mockImplementation((p) => 
+      pathMock.resolve.mockImplementation((p) =>
         p.startsWith('/') ? p : `/project/root/${p}`
       );
       pathMock.relative.mockImplementation((from, to) => {
@@ -255,9 +309,9 @@ describe('FileSystemApiService', () => {
 
     it('should return true for existing allowed files', () => {
       (fs.existsSync as jest.Mock).mockReturnValue(true);
-      (fs.statSync as jest.Mock).mockReturnValue({ 
+      (fs.statSync as jest.Mock).mockReturnValue({
         isFile: () => true,
-        isDirectory: () => false 
+        isDirectory: () => false
       });
 
       const result = service.exists('src/app.tsx');
@@ -269,9 +323,9 @@ describe('FileSystemApiService', () => {
 
     it('should return true for directories', () => {
       (fs.existsSync as jest.Mock).mockReturnValue(true);
-      (fs.statSync as jest.Mock).mockReturnValue({ 
+      (fs.statSync as jest.Mock).mockReturnValue({
         isFile: () => false,
-        isDirectory: () => true 
+        isDirectory: () => true
       });
 
       const result = service.exists('src');
@@ -291,9 +345,9 @@ describe('FileSystemApiService', () => {
 
     it('should return false for disallowed file types', () => {
       (fs.existsSync as jest.Mock).mockReturnValue(true);
-      (fs.statSync as jest.Mock).mockReturnValue({ 
+      (fs.statSync as jest.Mock).mockReturnValue({
         isFile: () => true,
-        isDirectory: () => false 
+        isDirectory: () => false
       });
 
       const result = service.exists('src/binary.exe');
@@ -316,7 +370,7 @@ describe('FileSystemApiService', () => {
   describe('ls', () => {
     beforeEach(() => {
       const pathMock = path as jest.Mocked<typeof path>;
-      pathMock.resolve.mockImplementation((p) => 
+      pathMock.resolve.mockImplementation((p) =>
         p.startsWith('/') ? p : `/project/root/${p}`
       );
       pathMock.relative.mockImplementation((from, to) => {
@@ -410,7 +464,7 @@ describe('FileSystemApiService', () => {
       (fs.readdirSync as jest.Mock)
         .mockReturnValueOnce(['app.tsx', 'components'])
         .mockReturnValueOnce(['Button.tsx']);
-      
+
       (fs.existsSync as jest.Mock).mockReturnValue(true);
       (fs.statSync as jest.Mock).mockImplementation((p) => ({
         isFile: () => p.includes('.tsx'),
@@ -437,9 +491,9 @@ describe('FileSystemApiService', () => {
 
     it('should fail when path is not a directory', () => {
       (fs.existsSync as jest.Mock).mockReturnValue(true);
-      (fs.statSync as jest.Mock).mockReturnValue({ 
+      (fs.statSync as jest.Mock).mockReturnValue({
         isFile: () => true,
-        isDirectory: () => false 
+        isDirectory: () => false
       });
 
       const result = service.ls('src/app.tsx');
@@ -450,9 +504,9 @@ describe('FileSystemApiService', () => {
 
     it('should fail for paths outside working directory', () => {
       (fs.existsSync as jest.Mock).mockReturnValue(true);
-      (fs.statSync as jest.Mock).mockReturnValue({ 
+      (fs.statSync as jest.Mock).mockReturnValue({
         isFile: () => false,
-        isDirectory: () => true 
+        isDirectory: () => true
       });
       (path.relative as jest.Mock).mockReturnValue('../outside');
 
@@ -464,168 +518,262 @@ describe('FileSystemApiService', () => {
   });
 
   describe('tree', () => {
+    it('should generate tree of all allowed files', async () => {
+      const mockFiles = {
+        '/project/root/package.json': JSON.stringify({
+          dependencies: { react: '^18.0.0', typescript: '^4.0.0' },
+          devDependencies: {}
+        }),
+        '/project/root/src/app.tsx': 'export default App',
+        '/project/root/src/index.css': 'body { margin: 0; }',
+        '/project/root/node_modules/react/package.json': JSON.stringify({
+          main: 'index.js'
+        }),
+        '/project/root/node_modules/react/index.js': 'module.exports = React',
+        '/project/root/node_modules/react/README.md': '# React',
+        '/project/root/node_modules/typescript/package.json': JSON.stringify({
+          main: 'index.js',
+          types: 'index.d.ts'
+        }),
+        '/project/root/node_modules/typescript/index.js': 'module.exports = TypeScript',
+        '/project/root/node_modules/typescript/index.d.ts': 'declare module typescript',
+        '/project/root/node_modules/typescript/README.md': '# TypeScript'
+      };
+
+      setupMockFileSystem(mockFiles);
+
+      const result = service.tree('/project/root');
+
+      expect(result.success).toBe(true);
+      expect(result.files).toContain('/project/root/src/app.tsx');
+      expect(result.files).toContain('/project/root/src/index.css');
+      expect(result.files).toContain('/project/root/package.json');
+
+      expect(result.files).toContain('/project/root/node_modules/react/package.json');
+      expect(result.files).toContain('/project/root/node_modules/react/index.js');
+      expect(result.files).toContain('/project/root/node_modules/react/README.md');
+
+      expect(result.files).toContain('/project/root/node_modules/typescript/package.json');
+      expect(result.files).toContain('/project/root/node_modules/typescript/index.js');
+      expect(result.files).toContain('/project/root/node_modules/typescript/index.d.ts');
+      expect(result.files).toContain('/project/root/node_modules/typescript/README.md');
+
+      expect(result.files).not.toContain('/project/root/node_modules/other-package/index.js');
+    });
+
+    it('should skip hidden files and directories', async () => {
+      const mockFiles = {
+        '/project/root/package.json': JSON.stringify({ dependencies: {}, devDependencies: {} }),
+        '/project/root/app.tsx': 'export default App',
+        '/project/root/.git/config': 'git config',
+      };
+
+      setupMockFileSystem(mockFiles);
+
+      const result = service.tree('/project/root');
+
+      expect(result.success).toBe(true);
+      expect(result.files).toContain('/project/root/app.tsx');
+      expect(result.files).toContain('/project/root/package.json');
+
+      expect(result.files).not.toContain('/project/root/.git/config');
+    });
+
+    it('should return sorted file list', async () => {
+      const mockFiles = {
+        '/project/root/package.json': JSON.stringify({ dependencies: {}, devDependencies: {} }),
+        '/project/root/z.ts': 'export const z = true',
+        '/project/root/a.ts': 'export const a = true',
+        '/project/root/m.ts': 'export const m = true'
+      };
+
+      setupMockFileSystem(mockFiles);
+
+      const result = service.tree('/project/root');
+
+      expect(result.success).toBe(true);
+      const expectedFiles = [
+        '/project/root/a.ts',
+        '/project/root/m.ts',
+        '/project/root/package.json',
+        '/project/root/z.ts'
+      ];
+      expect(result.files).toEqual(expectedFiles);
+    });
+  });
+
+  describe('Batch Methods', () => {
     beforeEach(() => {
       const pathMock = path as jest.Mocked<typeof path>;
-      pathMock.join.mockImplementation((...args) => args.join('/'));
+      pathMock.resolve.mockImplementation((p) =>
+        p.startsWith('/') ? p : `/project/root/${p}`
+      );
       pathMock.relative.mockImplementation((from, to) => {
-        if (to.startsWith(from + '/')) {
+        if (to.startsWith(from)) {
           return to.slice(from.length + 1);
         }
-        return to;
+        return '..' + to;
       });
       pathMock.extname.mockImplementation((p) => {
         const parts = p.split('.');
         return parts.length > 1 ? `.${parts[parts.length - 1]}` : '';
       });
+      pathMock.join.mockImplementation((...args) => args.join('/'));
+      pathMock.isAbsolute.mockImplementation((p) => p.startsWith('/'));
     });
 
-    it('should generate tree of all allowed files', () => {
-      const packageJson = {
-        dependencies: { react: '^18.0.0' },
-        devDependencies: { typescript: '^5.0.0' },
-      };
-
-      (fs.readFileSync as jest.Mock).mockReturnValue(JSON.stringify(packageJson));
-      (fs.existsSync as jest.Mock).mockReturnValue(true);
-
-      (fs.statSync as jest.Mock).mockImplementation((p: string) => ({
-        isFile: () => p.includes('.'),
-        isDirectory: () => !p.includes('.'),
-      }));
-
-      (fs.readdirSync as jest.Mock).mockImplementation((p: string) => {
-        switch (p) {
-          case '/project/root':
-            return ['src', 'package.json', 'node_modules'];
-
-          case '/project/root/src':
-            return ['app.tsx', 'index.css'];
-
-          case '/project/root/node_modules':
-            return ['react', 'typescript', 'other-package'];
-
-          case '/project/root/node_modules/react':
-            return ['index.js', 'package.json'];
-
-          case '/project/root/node_modules/typescript':
-            return ['index.d.ts', 'lib'];
-
-          case '/project/root/node_modules/typescript/lib':
-            return [];
-
-          default:
-            return [];
-        }
-      });
-
-      const result = service.tree('/project/root');
-
-      expect(result.success).toBe(true);
-      expect(result.files).toContain('src/app.tsx');
-      expect(result.files).toContain('src/index.css');
-      expect(result.files).toContain('package.json');
-      expect(result.files).toContain('node_modules/react/index.js');
-      expect(result.files).toContain('node_modules/react/package.json');
-      expect(result.files).toContain('node_modules/typescript/index.d.ts');
-      expect(result.files).not.toContain('node_modules/other-package/index.js');
-    });
-
-    it('should skip hidden files and directories', () => {
-      const packageJson = { dependencies: {} };
-      
-      (fs.readFileSync as jest.Mock).mockReturnValue(JSON.stringify(packageJson));
-      (fs.existsSync as jest.Mock).mockReturnValue(true);
-      (fs.statSync as jest.Mock).mockImplementation((p) => ({
-        isFile: () => p.includes('.tsx') || p.includes('.git') || p === '/project/root/package.json',
-        isDirectory: () => !p.includes('.') && p !== '/project/root/package.json'
-      }));
-      (fs.readdirSync as jest.Mock).mockReturnValue(['.git', '.env', 'app.tsx', 'package.json']);
-
-      const result = service.tree('/project/root');
-
-      expect(result.success).toBe(true);
-      expect(result.files).toContain('app.tsx');
-      expect(result.files).toContain('package.json');
-      expect(result.files).not.toContain('.git');
-      expect(result.files).not.toContain('.env');
-    });
-
-    it('should handle missing package.json', () => {
-      (fs.readFileSync as jest.Mock).mockImplementation(() => {
-        throw new Error('ENOENT: no such file');
-      });
-
-      const result = service.tree('/project/root');
-
-      expect(result.success).toBe(false);
-      expect(result.error).toContain('Could not read package.json');
-    });
-
-    it('should handle read errors gracefully', () => {
-      const packageJson = { 
-        dependencies: {
-          'some-package': '^1.0.0'
-        } 
-      };
-      
-      (fs.readFileSync as jest.Mock).mockReturnValue(JSON.stringify(packageJson));
-      (fs.existsSync as jest.Mock).mockReturnValue(false);
-      (fs.readdirSync as jest.Mock)
-        .mockImplementationOnce(() => {
-          throw new Error('Permission denied');
+    describe('readFileMany', () => {
+      it('should read multiple files successfully', () => {
+        (fs.existsSync as jest.Mock).mockReturnValue(true);
+        (fs.statSync as jest.Mock).mockReturnValue({
+          isFile: () => true,
+          isDirectory: () => false
         });
+        (fs.readFileSync as jest.Mock)
+          .mockReturnValueOnce('const app = "hello";')
+          .mockReturnValueOnce('export const utils = {};');
 
-      const result = service.tree('/project/root');
+        const results = service.readFileMany([
+          { filePath: 'src/app.ts' },
+          { filePath: 'src/utils.ts', encoding: 'utf8' }
+        ]);
 
-      expect(result.success).toBe(true);
-      expect(result.files).toEqual([]);
-    });
-
-    it('should handle scoped packages in node_modules', () => {
-      const packageJson = {
-        dependencies: { 
-          '@types/node': '^20.0.0',
-          '@babel/core': '^7.0.0'
-        }
-      };
-      
-      (fs.readFileSync as jest.Mock).mockReturnValue(JSON.stringify(packageJson));
-      (fs.existsSync as jest.Mock).mockImplementation((p) => {
-        return p === '/project/root/node_modules/@types/node' || 
-               p === '/project/root/node_modules/@babel/core';
+        expect(results).toHaveLength(2);
+        expect(results[0].success).toBe(true);
+        expect(results[0].data).toBe('const app = "hello";');
+        expect(results[1].success).toBe(true);
+        expect(results[1].data).toBe('export const utils = {};');
       });
-      (fs.statSync as jest.Mock).mockImplementation((p) => ({
-        isFile: () => p.includes('.'),
-        isDirectory: () => !p.includes('.')
-      }));
-      
-      (fs.readdirSync as jest.Mock)
-        .mockReturnValueOnce(['node_modules', 'package.json'])
-        .mockReturnValueOnce(['index.d.ts'])
-        .mockReturnValueOnce(['index.js']);
 
-      const result = service.tree('/project/root');
+      it('should handle mixed success and failure results', () => {
+        (fs.existsSync as jest.Mock)
+          .mockReturnValueOnce(true)
+          .mockReturnValueOnce(false);
+        (fs.statSync as jest.Mock).mockReturnValue({
+          isFile: () => true,
+          isDirectory: () => false
+        });
+        (fs.readFileSync as jest.Mock).mockReturnValue('file content');
 
-      expect(result.success).toBe(true);
-      expect(fs.existsSync).toHaveBeenCalledWith('/project/root/node_modules/@types/node');
-      expect(fs.existsSync).toHaveBeenCalledWith('/project/root/node_modules/@babel/core');
+        const results = service.readFileMany([
+          { filePath: 'src/exists.ts' },
+          { filePath: 'src/missing.ts' }
+        ]);
+
+        expect(results).toHaveLength(2);
+        expect(results[0].success).toBe(true);
+        expect(results[1].success).toBe(false);
+        expect(results[1].error).toContain('File not found');
+      });
     });
 
-    it('should return sorted file list', () => {
-      const packageJson = { dependencies: {} };
-      
-      (fs.readFileSync as jest.Mock).mockReturnValue(JSON.stringify(packageJson));
-      (fs.existsSync as jest.Mock).mockReturnValue(true);
-      (fs.statSync as jest.Mock).mockImplementation((p) => ({
-        isFile: () => p.includes('.'),
-        isDirectory: () => !p.includes('.')
-      }));
-      (fs.readdirSync as jest.Mock).mockReturnValue(['z.ts', 'a.ts', 'm.ts']);
+    describe('writeToFileMany', () => {
+      it('should write to multiple files successfully', () => {
+        (fs.writeFileSync as jest.Mock).mockImplementation(() => { });
 
-      const result = service.tree('/project/root');
+        const results = service.writeToFileMany([
+          { filePath: 'src/new1.ts', content: 'export const one = 1;' },
+          { filePath: 'src/new2.js', content: 'console.log("two");', encoding: 'utf8' }
+        ]);
 
-      expect(result.success).toBe(true);
-      expect(result.files).toEqual(['a.ts', 'm.ts', 'z.ts']);
+        expect(results).toHaveLength(2);
+        expect(results[0].success).toBe(true);
+        expect(results[1].success).toBe(true);
+        expect(fs.writeFileSync).toHaveBeenCalledTimes(2);
+        expect(fs.writeFileSync).toHaveBeenCalledWith(
+          '/project/root/src/new1.ts',
+          'export const one = 1;',
+          'utf8'
+        );
+      });
+
+      it('should handle write failures', () => {
+        (fs.writeFileSync as jest.Mock)
+          .mockImplementationOnce(() => { })
+          .mockImplementationOnce(() => {
+            throw new Error('Permission denied');
+          });
+
+        const results = service.writeToFileMany([
+          { filePath: 'src/success.ts', content: 'success' },
+          { filePath: 'src/fail.ts', content: 'fail' }
+        ]);
+
+        expect(results).toHaveLength(2);
+        expect(results[0].success).toBe(true);
+        expect(results[1].success).toBe(false);
+        expect(results[1].error).toContain('Permission denied');
+      });
+    });
+
+    describe('existsMany', () => {
+      it('should check existence of multiple paths', () => {
+        (fs.existsSync as jest.Mock)
+          .mockReturnValueOnce(true)
+          .mockReturnValueOnce(false)
+          .mockReturnValueOnce(true);
+        (fs.statSync as jest.Mock)
+          .mockReturnValueOnce({ isFile: () => true, isDirectory: () => false })
+          .mockReturnValueOnce({ isFile: () => false, isDirectory: () => true });
+
+        const results = service.existsMany([
+          'src/app.ts',
+          'src/missing.ts',
+          'src/components'
+        ]);
+
+        expect(results).toHaveLength(3);
+        expect(results[0].exists).toBe(true);
+        expect(results[0].isFile).toBe(true);
+        expect(results[1].exists).toBe(false);
+        expect(results[2].exists).toBe(true);
+        expect(results[2].isDirectory).toBe(true);
+      });
+    });
+
+    describe('lsMany', () => {
+      it('should list multiple directories', async () => {
+        const mockFiles = {
+          '/project/root/src/app.ts': 'export default app',
+          '/project/root/src/utils.ts': 'export const utils = true',
+          '/project/root/dist/app.ts': 'compiled app',
+          '/project/root/dist/utils.ts': 'compiled utils'
+        };
+
+        setupMockFileSystem(mockFiles);
+
+        const results = service.lsMany([
+          { dirPath: '/project/root/src' },
+          { dirPath: '/project/root/dist' }
+        ]);
+
+        expect(results).toHaveLength(2);
+        expect(results[0].success).toBe(true);
+        expect(results[0].files!.length).toBeGreaterThan(0);
+        expect(results[1].success).toBe(true);
+        expect(results[1].files).toHaveLength(2);
+      });
+    });
+
+    describe('treeMany', () => {
+      it('should generate trees for multiple directories', async () => {
+        const mockFiles = {
+          '/project/root/package.json': JSON.stringify({ dependencies: {}, devDependencies: {} }),
+          '/project/root/app.ts': 'export default app',
+          '/project/build/package.json': JSON.stringify({ dependencies: {}, devDependencies: {} }),
+          '/project/build/bundle.js': 'bundled code'
+        };
+
+        setupMockFileSystem(mockFiles);
+
+        const results = service.treeMany(['/project/root', '/project/build']);
+
+        expect(results).toHaveLength(2);
+        expect(results[0].success).toBe(true);
+        expect(results[0].files).toContain('/project/root/app.ts');
+        expect(results[1].success).toBe(true);
+        expect(results[1].files).toContain('/project/build/bundle.js');
+      });
     });
   });
 });

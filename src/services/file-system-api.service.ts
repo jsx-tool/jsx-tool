@@ -1,9 +1,15 @@
 import 'reflect-metadata';
 import { injectable, singleton, inject } from 'tsyringe';
-import { readFileSync, writeFileSync, existsSync, readdirSync, statSync } from 'fs';
+import type { FSWatcher, Stats } from 'fs';
+import { readFileSync, writeFileSync, existsSync, readdirSync, statSync, watch } from 'fs';
 import { resolve, join, relative, extname } from 'path';
 import * as path from 'path';
 import { ConfigService } from './config.service';
+
+export interface ProjectInfo {
+  projectRoot: string
+  files: string[]
+}
 
 export interface FileInfo {
   name: string
@@ -42,6 +48,22 @@ export interface TreeResult {
   error?: string
 }
 
+export interface ReadFileArgs {
+  filePath: string
+  encoding?: BufferEncoding
+}
+
+export interface WriteFileArgs {
+  filePath: string
+  content: string
+  encoding?: BufferEncoding
+}
+
+export interface LsArgs {
+  dirPath: string
+  options?: { recursive?: boolean, filesOnly?: boolean, directoriesOnly?: boolean }
+}
+
 @singleton()
 @injectable()
 export class FileSystemApiService {
@@ -53,26 +75,70 @@ export class FileSystemApiService {
     '.woff', '.woff2', '.ttf', '.otf', '.eot',
     '.mp4', '.webm', '.ogg', '.mp3', '.wav',
     '.txt', '.md', '.yml', '.yaml',
-    '.map', '.d.ts'
+    '.map', '.d.ts', '.md'
   ]);
+
+  private readonly watchers: FSWatcher[] = [];
+  private readonly debounceTimers = new Map<string, NodeJS.Timeout>();
+  private readonly fileChangeListener: Array<() => void> = [];
+
+  setListener (listener: () => void): void {
+    this.fileChangeListener.push(listener);
+  }
 
   constructor (
     @inject(ConfigService) private readonly configService: ConfigService
-  ) {}
+  ) {
+  }
 
-  private isPathSafe (filePath: string): { safe: boolean, reason?: string } {
+  public startFileWatchers () {
+    this.watchDirs([
+      this.configService.getConfig().workingDirectory
+    ]);
+  }
+
+  private watchDirs (roots: string[]): void {
+    for (const root of this.dedupeRoots(roots)) {
+      const w = watch(root, { recursive: true }, () => {
+        const existing = this.debounceTimers.get(root);
+        if (existing) clearTimeout(existing);
+
+        const t = setTimeout(() => {
+          this.fileChangeListener.forEach(listener => { listener(); });
+          this.debounceTimers.delete(root);
+        }, 100);
+
+        this.debounceTimers.set(root, t);
+      });
+
+      this.watchers.push(w);
+    }
+  }
+
+  public projectInfo (): ProjectInfo {
+    const config = this.configService.getConfig();
+    return {
+      projectRoot: config.workingDirectory,
+      files: this.tree(config.workingDirectory).files ?? []
+    };
+  }
+
+  private isPathSafe (
+    filePath: string,
+    stats?: Stats
+  ): { safe: boolean, reason?: string } {
     const absolutePath = resolve(filePath);
     const workingDir = this.configService.getConfig().workingDirectory;
+    const rel = relative(workingDir, absolutePath);
 
-    const relativePath = relative(workingDir, absolutePath);
-    if (relativePath.startsWith('..') || path.isAbsolute(relativePath)) {
+    if (rel.startsWith('..') || path.isAbsolute(rel)) {
       return {
         safe: false,
         reason: `Path must be within working directory: ${workingDir}`
       };
     }
 
-    if (statSync(absolutePath).isDirectory()) {
+    if (stats ? stats.isDirectory() : (existsSync(absolutePath) && statSync(absolutePath).isDirectory())) {
       return { safe: true };
     }
 
@@ -98,19 +164,14 @@ export class FileSystemApiService {
         };
       }
 
-      if (!statSync(absolutePath).isFile()) {
-        return {
-          success: false,
-          error: `Path is not a file: ${absolutePath}`
-        };
+      const stats = statSync(absolutePath);
+      if (!stats.isFile()) {
+        return { success: false, error: `Path is not a file: ${absolutePath}` };
       }
 
-      const safetyCheck = this.isPathSafe(absolutePath);
-      if (!safetyCheck.safe) {
-        return {
-          success: false,
-          error: safetyCheck.reason
-        };
+      const safe = this.isPathSafe(absolutePath, stats);
+      if (!safe.safe) {
+        return { success: false, error: safe.reason };
       }
 
       const data = readFileSync(absolutePath, encoding);
@@ -124,6 +185,12 @@ export class FileSystemApiService {
         error: `Error reading file: ${(error as Error).message}`
       };
     }
+  }
+
+  readFileMany (args: ReadFileArgs[]): ReadFileResult[] {
+    return args.map(({ filePath, encoding = 'utf8' }) =>
+      this.readFile(filePath, encoding)
+    );
   }
 
   writeToFile (filePath: string, content: string, encoding: BufferEncoding = 'utf8'): WriteFileResult {
@@ -151,6 +218,12 @@ export class FileSystemApiService {
     }
   }
 
+  writeToFileMany (args: WriteFileArgs[]): WriteFileResult[] {
+    return args.map(({ filePath, content, encoding = 'utf8' }) =>
+      this.writeToFile(filePath, content, encoding)
+    );
+  }
+
   exists (path: string): ExistsResult {
     try {
       const absolutePath = resolve(path);
@@ -163,10 +236,8 @@ export class FileSystemApiService {
       const isDirectory = stats.isDirectory();
 
       if (!isDirectory) {
-        const safetyCheck = this.isPathSafe(absolutePath);
-        if (!safetyCheck.safe) {
-          return { exists: false };
-        }
+        const safe = this.isPathSafe(absolutePath, stats);
+        if (!safe.safe) return { exists: false };
       }
 
       return {
@@ -177,6 +248,10 @@ export class FileSystemApiService {
     } catch (error) {
       return { exists: false };
     }
+  }
+
+  existsMany (paths: string[]): ExistsResult[] {
+    return paths.map(path => this.exists(path));
   }
 
   ls (dirPath: string, options?: { recursive?: boolean, filesOnly?: boolean, directoriesOnly?: boolean }): LsResult {
@@ -251,14 +326,16 @@ export class FileSystemApiService {
     }
   }
 
+  lsMany (args: LsArgs[]): LsResult[] {
+    return args.map(({ dirPath, options }) => this.ls(dirPath, options));
+  }
+
   tree (dirStr: string): TreeResult {
     try {
       const workingDir = resolve(dirStr);
       const files: string[] = [];
-
       const packageJsonPath = join(workingDir, 'package.json');
       let installedPackages = new Set<string>();
-
       try {
         const packageJson = JSON.parse(readFileSync(packageJsonPath, 'utf8'));
         const deps = packageJson.dependencies || {};
@@ -270,11 +347,8 @@ export class FileSystemApiService {
           error: `Could not read package.json: ${(error as Error).message}`
         };
       }
-
       this.treeWalk(workingDir, files, workingDir, installedPackages);
-
       files.sort();
-
       return {
         success: true,
         files
@@ -287,6 +361,10 @@ export class FileSystemApiService {
     }
   }
 
+  treeMany (dirPaths: string[]): TreeResult[] {
+    return dirPaths.map(dirPath => this.tree(dirPath));
+  }
+
   private treeWalk (
     currentPath: string,
     files: string[],
@@ -295,32 +373,27 @@ export class FileSystemApiService {
   ): void {
     try {
       const entries = readdirSync(currentPath);
-
       for (const entry of entries) {
         const entryPath = join(currentPath, entry);
         const relativePath = relative(rootPath, entryPath);
-
         try {
           const stats = statSync(entryPath);
-
           if (stats.isDirectory()) {
             if (entry === 'node_modules' && currentPath === rootPath) {
               const nodeModulesPath = entryPath;
               for (const packageName of installedPackages) {
                 const packagePath = join(nodeModulesPath, packageName);
                 if (existsSync(packagePath) && statSync(packagePath).isDirectory()) {
-                  this.treeWalk(packagePath, files, rootPath, installedPackages);
+                  this.addPackageMainFiles(packagePath, files);
                 }
               }
             } else if (!relativePath.includes('node_modules')) {
-              this.treeWalk(entryPath, files, rootPath, installedPackages);
-            } else {
               this.treeWalk(entryPath, files, rootPath, installedPackages);
             }
           } else {
             const ext = extname(entry).toLowerCase();
             if (this.allowedExtensions.has(ext)) {
-              files.push(relativePath);
+              files.push(entryPath);
             }
           }
         } catch (error) {
@@ -328,7 +401,6 @@ export class FileSystemApiService {
         }
       }
     } catch (error) {
-
     }
   }
 
@@ -370,5 +442,88 @@ export class FileSystemApiService {
         continue;
       }
     }
+  }
+
+  private addPackageMainFiles (packagePath: string, files: string[]): void {
+    try {
+      const packageJsonPath = join(packagePath, 'package.json');
+      const packageJson = JSON.parse(readFileSync(packageJsonPath, 'utf8'));
+
+      files.push(packageJsonPath);
+
+      const mainFields = ['main', 'module', 'browser', 'types', 'typings'];
+      const addedFiles = new Set<string>();
+
+      for (const field of mainFields) {
+        if (packageJson[field]) {
+          const filePath = join(packagePath, packageJson[field]);
+          if (existsSync(filePath) && !addedFiles.has(filePath)) {
+            files.push(filePath);
+            addedFiles.add(filePath);
+          }
+        }
+      }
+
+      if (packageJson.exports) {
+        this.addExportedFiles(packageJson.exports, packagePath, files, addedFiles);
+      }
+
+      if (addedFiles.size === 0) {
+        const commonDefaults = ['index.js', 'index.d.ts', 'index.mjs', 'index.cjs'];
+        for (const defaultFile of commonDefaults) {
+          const filePath = join(packagePath, defaultFile);
+          if (existsSync(filePath)) {
+            files.push(filePath);
+            break;
+          }
+        }
+      }
+      const readmePath = join(packagePath, 'README.md');
+      if (existsSync(readmePath)) {
+        files.push(readmePath);
+      }
+    } catch (error) {
+      files.push(packagePath);
+    }
+  }
+
+  private addExportedFiles (
+    exports: any,
+    packagePath: string,
+    files: string[],
+    addedFiles: Set<string>
+  ): void {
+    if (typeof exports === 'string') {
+      const filePath = join(packagePath, exports);
+      if (existsSync(filePath) && !addedFiles.has(filePath)) {
+        files.push(filePath);
+        addedFiles.add(filePath);
+      }
+    } else if (typeof exports === 'object' && exports !== null) {
+      for (const value of Object.values(exports)) {
+        this.addExportedFiles(value, packagePath, files, addedFiles);
+      }
+    }
+  }
+
+  private dedupeRoots (rawRoots: string[]): string[] {
+    const roots = rawRoots
+      .map(r => resolve(r))
+      .sort((a, b) => a.localeCompare(b));
+
+    const result: string[] = [];
+    for (const r of roots) {
+      if (!result.some(top => r.startsWith(top + path.sep))) {
+        result.push(r);
+      }
+    }
+    return result;
+  }
+
+  public cleanup (): void {
+    for (const w of this.watchers) w?.close?.();
+    this.watchers.length = 0;
+    this.debounceTimers.forEach(t => { clearTimeout(t); });
+    this.debounceTimers.clear();
   }
 }

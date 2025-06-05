@@ -4,6 +4,7 @@ import { ConfigService } from './services/config.service';
 import { Logger } from './services/logger.service';
 import { ProxyService } from './services/proxy.service';
 import { WebSocketService } from './services/websocket.service';
+import { FileSystemApiService } from './services/file-system-api.service';
 
 @injectable()
 export class Application {
@@ -11,13 +12,15 @@ export class Application {
     @inject(ConfigService) private readonly config: ConfigService,
     @inject(Logger) private readonly logger: Logger,
     @inject(ProxyService) private readonly proxy: ProxyService,
-    @inject(WebSocketService) private readonly ws: WebSocketService
+    @inject(WebSocketService) private readonly ws: WebSocketService,
+    @inject(FileSystemApiService) private readonly fileSystemApiService: FileSystemApiService
   ) {}
 
   async start (): Promise<void> {
     const { valid, errors } = this.config.validate();
     if (!valid) throw new Error(`Invalid config:\n• ${errors.join('\n• ')}`);
 
+    this.fileSystemApiService.startFileWatchers();
     await Promise.all([this.proxy.start(), this.ws.start()]);
     this.logger.success('Filemap dev-server started ✅');
 
@@ -25,6 +28,7 @@ export class Application {
   }
 
   async stop (): Promise<void> {
+    this.fileSystemApiService.cleanup();
     await Promise.all([this.proxy.stop(), this.ws.stop()]);
     this.logger.info('Filemap dev-server stopped');
   }
