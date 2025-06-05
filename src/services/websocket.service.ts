@@ -192,9 +192,15 @@ export class WebSocketService {
 
     if (!this.wss) return;
 
+
     this.wss.on('connection', (ws) => {
       this.clients.add(ws);
       this.logger.info('WebSocket client connected');
+
+      ws.send(JSON.stringify({
+        event_name: 'init',
+        key_ready: this.keyManager.hasValidKey()
+      }));
 
       ws.on('message', (data) => {
         this.logger.debug(`WebSocket received: ${data.toString()}`);
