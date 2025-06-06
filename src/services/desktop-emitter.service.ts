@@ -10,7 +10,9 @@ interface RegisterUuidEvent {
   }
 }
 
-type ForwardedMessage = WebSocketInboundEvent<'open_element'>;
+type ForwardedMessage =
+  WebSocketInboundEvent<'open_element'> |
+  WebSocketInboundEvent<'open_file'>;
 
 @singleton()
 @injectable()

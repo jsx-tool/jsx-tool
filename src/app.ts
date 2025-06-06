@@ -12,7 +12,7 @@ export class Application {
     @inject(ConfigService) private readonly config: ConfigService,
     @inject(Logger) private readonly logger: Logger,
     @inject(ProxyService) private readonly proxy: ProxyService,
-    @inject(WebSocketService) private readonly ws: WebSocketService,
+    @inject(WebSocketService) private readonly webSocketService: WebSocketService,
     @inject(FileSystemApiService) private readonly fileSystemApiService: FileSystemApiService
   ) {}
 
@@ -21,7 +21,7 @@ export class Application {
     if (!valid) throw new Error(`Invalid config:\n• ${errors.join('\n• ')}`);
 
     this.fileSystemApiService.startFileWatchers();
-    await Promise.all([this.proxy.start(), this.ws.start()]);
+    await Promise.all([this.proxy.start(), this.webSocketService.start()]);
     this.logger.success('Filemap dev-server started ✅');
 
     this.logKeyStatus();
@@ -29,13 +29,13 @@ export class Application {
 
   async stop (): Promise<void> {
     this.fileSystemApiService.cleanup();
-    await Promise.all([this.proxy.stop(), this.ws.stop()]);
+    await Promise.all([this.proxy.stop(), this.webSocketService.stop()]);
     this.logger.info('Filemap dev-server stopped');
   }
 
   private logKeyStatus (): void {
-    const keyStatus = this.ws.getCurrentKeyStatus();
-    const fetcherStatus = this.ws.getFetcherStatus();
+    const keyStatus = this.webSocketService.getCurrentKeyStatus();
+    const fetcherStatus = this.webSocketService.getFetcherStatus();
 
     if (keyStatus.hasKey) {
       this.logger.info(`Active key: ${keyStatus.uuid} (expires: ${keyStatus.expirationTime})`);
@@ -56,9 +56,9 @@ export class Application {
   } {
     return {
       config: this.config.getConfig(),
-      keyStatus: this.ws.getCurrentKeyStatus(),
-      fetcherStatus: this.ws.getFetcherStatus(),
-      clientCount: this.ws.getClientCount()
+      keyStatus: this.webSocketService.getCurrentKeyStatus(),
+      fetcherStatus: this.webSocketService.getFetcherStatus(),
+      clientCount: this.webSocketService.getClientCount()
     };
   }
 }

@@ -24,88 +24,91 @@ import { DesktopClientRegistryService } from './desktop-client-registry.service'
 import { DesktopEmitterService } from './desktop-emitter.service';
 
 export interface RequestParamMap {
-  read_file: ReadFileArgs
-  write_file: WriteFileArgs
+  read_file: ReadFileArgs;
+  write_file: WriteFileArgs;
   exists: {
-    filePath: string
-  }
-  ls: LsArgs
+    filePath: string;
+  };
+  ls: LsArgs;
   tree: {
-    filePath: string
-  }
+    filePath: string;
+  };
   read_file_many: {
-    files: ReadFileArgs[]
-  }
+    files: ReadFileArgs[];
+  };
   write_file_many: {
-    files: WriteFileArgs[]
-  }
+    files: WriteFileArgs[];
+  };
   exists_many: {
-    paths: string[]
-  }
+    paths: string[];
+  };
   ls_many: {
-    dirs: LsArgs[]
-  }
+    dirs: LsArgs[];
+  };
   tree_many: {
-    dirPaths: string[]
-  }
+    dirPaths: string[];
+  };
   open_element: {
-    file_path: string
-    line_number: number
-    column_number: number
-  }
+    file_path: string;
+    line_number: number;
+    column_number: number;
+  };
+  open_file: {
+    file_path: string;
+  };
   // event api
-  get_project_info: unknown
-  get_unix_client_info: unknown
+  get_project_info: unknown;
+  get_unix_client_info: unknown;
 }
 
 export interface EventPayloadMap {
   read_file: {
-    filePath: string
-    response: ReadFileResult
-  }
+    filePath: string;
+    response: ReadFileResult;
+  };
   write_file: {
-    filePath: string
-    response: WriteFileResult
-  }
+    filePath: string;
+    response: WriteFileResult;
+  };
   exists: {
-    filePath: string
-    response: ExistsResult
-  }
+    filePath: string;
+    response: ExistsResult;
+  };
   ls: {
-    filePath: string
-    response: LsResult
-  }
+    filePath: string;
+    response: LsResult;
+  };
   tree: {
-    filePath: string
-    response: TreeResult
-  }
+    filePath: string;
+    response: TreeResult;
+  };
   read_file_many: {
-    files: ReadFileArgs[]
-    responses: ReadFileResult[]
-  }
+    files: ReadFileArgs[];
+    responses: ReadFileResult[];
+  };
   write_file_many: {
-    files: WriteFileArgs[]
-    responses: WriteFileResult[]
-  }
+    files: WriteFileArgs[];
+    responses: WriteFileResult[];
+  };
   exists_many: {
-    paths: string[]
-    responses: ExistsResult[]
-  }
+    paths: string[];
+    responses: ExistsResult[];
+  };
   ls_many: {
-    dirs: LsArgs[]
-    responses: LsResult[]
-  }
+    dirs: LsArgs[];
+    responses: LsResult[];
+  };
   tree_many: {
-    dirPaths: string[]
-    responses: TreeResult[]
-  }
+    dirPaths: string[];
+    responses: TreeResult[];
+  };
   get_project_info: {
-    projectInfo: ProjectInfo
+    projectInfo: ProjectInfo;
   }
   get_unix_client_info: {
-    unixConnectionCount: number
-    utilizedApis: AvailableApis[]
-  }
+    unixConnectionCount: number;
+    utilizedApis: AvailableApis[];
+  };
 }
 
 export interface WebSocketInboundEvent<K extends keyof RequestParamMap> {
@@ -149,6 +152,7 @@ const signedEvents = new Set<keyof RequestParamMap>([
   'ls_many',
   'tree_many',
   'open_element',
+  'open_file',
   'get_project_info',
   'get_unix_client_info'
 ]);
@@ -387,10 +391,17 @@ export class WebSocketService {
           );
           break;
         }
+
         case 'open_element': {
           this.desktopEmitterService.forwardMessage(message);
           break;
         }
+
+        case 'open_file': {
+          this.desktopEmitterService.forwardMessage(message);
+          break;
+        }
+
         case 'get_project_info': {
           const projectInfo = this.fileSystemApi.projectInfo();
           socket.send(
@@ -400,6 +411,7 @@ export class WebSocketService {
           );
           break;
         }
+
         case 'get_unix_client_info': {
           socket.send(
             this.serializeResponseMessage(message, {

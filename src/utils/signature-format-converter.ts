@@ -5,8 +5,8 @@ export function ieeeP1363ToDer (ieeeSignature: string): string {
     throw new Error(`Invalid signature length: ${signature.length}. Expected 64 bytes for P-256.`);
   }
 
-  const r = signature.slice(0, 32);
-  const s = signature.slice(32, 64);
+  const r = signature.subarray(0, 32);
+  const s = signature.subarray(32, 64);
 
   const der = encodeDER(r, s);
   return der.toString('base64');
