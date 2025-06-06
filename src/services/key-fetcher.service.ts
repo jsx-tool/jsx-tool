@@ -142,7 +142,7 @@ export class KeyFetcher {
         }
 
         if (!response.ok) {
-          if (response.status === 500) {
+          if (response.status >= 500) {
             this.logger.debug(`Key not ready yet for UUID: ${uuid}, will retry`);
             this.scheduleRetry();
             return;

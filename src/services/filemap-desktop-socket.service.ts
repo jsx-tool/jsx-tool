@@ -18,8 +18,8 @@ export class FilemapDesktopSocketService {
   private client: Socket | null = null;
   private isServer = false;
 
-  private _closing = false;
-  private _initialized = false;
+  private closing = false;
+  private initialized = false;
 
   private readonly buffers = new Map<Socket, string>();
 
@@ -35,7 +35,7 @@ export class FilemapDesktopSocketService {
   }
 
   public broadcast (message: string): void {
-    if (this._closing) return;
+    if (this.closing) return;
 
     const payload = message.endsWith('\n') ? message : message + '\n';
 
@@ -49,7 +49,7 @@ export class FilemapDesktopSocketService {
   }
 
   public async close (): Promise<void> {
-    this._closing = true;
+    this.closing = true;
 
     for (const c of this.clients) c.destroy();
     this.clients.clear();
@@ -70,13 +70,13 @@ export class FilemapDesktopSocketService {
     }
 
     try { if (existsSync(this.socketPath)) unlinkSync(this.socketPath); } catch {}
-    this._closing = false;
-    this._initialized = false;
+    this.closing = false;
+    this.initialized = false;
   }
 
   private async init (): Promise<void> {
-    if (this._initialized || this._closing) return;
-    this._initialized = true;
+    if (this.initialized || this.closing) return;
+    this.initialized = true;
 
     if (existsSync(this.socketPath)) {
       try {
@@ -108,7 +108,7 @@ export class FilemapDesktopSocketService {
   }
 
   private startServer (): void {
-    if (this._closing) return;
+    if (this.closing) return;
 
     this.server = createServer((socket) => {
       this.clients.add(socket);
@@ -131,7 +131,7 @@ export class FilemapDesktopSocketService {
     this.server.on('error', (err: any) => {
       if (err.code === 'EADDRINUSE') {
         try { unlinkSync(this.socketPath); } catch {}
-        setTimeout(() => { if (!this._closing) this.startServer(); }, 100);
+        setTimeout(() => { if (!this.closing) this.startServer(); }, 100);
       }
     });
   }
