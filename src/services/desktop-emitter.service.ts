@@ -2,6 +2,8 @@ import { injectable, singleton, inject } from 'tsyringe';
 import { FilemapDesktopSocketService } from './filemap-desktop-socket.service';
 import type { WebSocketInboundEvent } from './websocket.service';
 import { ConfigService } from './config.service';
+import type { KeyData } from './key-manager.service';
+import { KeyManager } from './key-manager.service';
 
 interface RegisterUuidEvent {
   event: 'register_uuid'
@@ -25,8 +27,13 @@ type ForwardedMessageWithReferrer = ForwardedMessage & {
 export class DesktopEmitterService {
   constructor (
     @inject(ConfigService) private readonly configService: ConfigService,
-    @inject(FilemapDesktopSocketService) private readonly socketService: FilemapDesktopSocketService
-  ) {}
+    @inject(FilemapDesktopSocketService) private readonly socketService: FilemapDesktopSocketService,
+    @inject(KeyManager) private readonly keyManager: KeyManager
+  ) {
+    this.keyManager.setListener((keyData: KeyData) => {
+      this.registerUuid(keyData.uuid, keyData.expirationTime);
+    });
+  }
 
   public registerUuid (uuid: string, expirationTime: string): void {
     const { wsHost, wsPort, wsProtocol } = this.configService.getConfig();
