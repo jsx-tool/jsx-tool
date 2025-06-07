@@ -19,7 +19,7 @@ export class ProxyService {
     @inject(ConfigService) private readonly config: ConfigService,
     @inject(Logger) private readonly logger: Logger,
     @inject(HtmlInjector) private readonly htmlInjector: HtmlInjector
-  ) {}
+  ) { }
 
   async start (): Promise<void> {
     const config = this.config.getConfig();
@@ -27,27 +27,45 @@ export class ProxyService {
 
     this.proxy = createProxyServer({
       target,
+      changeOrigin: true,
       selfHandleResponse: true,
-      changeOrigin: true
+      ws: true
     });
 
     this.proxy.on('proxyRes', (proxyRes, req, res: ServerResponse) => {
       this.handleProxyResponse(proxyRes, req, res);
     });
 
-    this.proxy.on('error', (err: Error, _req: http.IncomingMessage, res: http.ServerResponse<http.IncomingMessage> | Socket) => {
-      this.logger.error(`Proxy error: ${err.message}`);
-      if (res && 'writeHead' in res && 'headersSent' in res) {
-        const response = res;
-        if (!response.headersSent) {
-          response.writeHead(500, { 'Content-Type': 'text/plain' });
-          response.end('Proxy error occurred');
+    this.proxy.on(
+      'error',
+      (
+        err: Error,
+        _req: http.IncomingMessage,
+        res: http.ServerResponse<http.IncomingMessage> | Socket
+      ) => {
+        this.logger.error(`Proxy error: ${err.message}`);
+        if ('writeHead' in res && !res.headersSent) {
+          res.writeHead(500, { 'Content-Type': 'text/plain' });
+          (res).end('Proxy error occurred');
+        } else if ('destroy' in res) {
+          (res as Socket).destroy();
         }
       }
-    });
+    );
 
     this.server = http.createServer((req, res) => {
-      this.proxy?.web?.(req, res);
+      this.proxy!.web(req, res);
+    });
+
+    this.server.on('upgrade', (req, socket: Socket, head: Buffer) => {
+      if (!this.proxy) return socket.destroy();
+
+      socket.on('error', (e) => {
+        this.logger.warn(`WS socket error: ${e.message}`);
+        socket.destroy();
+      });
+
+      this.proxy.ws(req, socket, head, { target, changeOrigin: true });
     });
 
     await new Promise<void>((resolve) => {
@@ -61,7 +79,11 @@ export class ProxyService {
     });
   }
 
-  private handleProxyResponse (proxyRes: http.IncomingMessage, _req: http.IncomingMessage, res: ServerResponse): void {
+  private handleProxyResponse (
+    proxyRes: http.IncomingMessage,
+    _req: http.IncomingMessage,
+    res: ServerResponse
+  ): void {
     const contentType = proxyRes.headers['content-type'] || '';
 
     if (contentType.includes('text/html')) {
@@ -72,23 +94,19 @@ export class ProxyService {
     }
   }
 
-  private handleHtmlResponse (proxyRes: http.IncomingMessage, res: ServerResponse): void {
+  private handleHtmlResponse (
+    proxyRes: http.IncomingMessage,
+    res: ServerResponse
+  ): void {
     const encoding = proxyRes.headers['content-encoding'];
     let body = '';
 
     let stream: Stream = proxyRes;
-    if (encoding === 'gzip') {
-      stream = proxyRes.pipe(zlib.createGunzip());
-    } else if (encoding === 'deflate') {
-      stream = proxyRes.pipe(zlib.createInflate());
-    } else if (encoding === 'br') {
-      stream = proxyRes.pipe(zlib.createBrotliDecompress());
-    }
+    if (encoding === 'gzip') stream = proxyRes.pipe(zlib.createGunzip());
+    else if (encoding === 'deflate') stream = proxyRes.pipe(zlib.createInflate());
+    else if (encoding === 'br') stream = proxyRes.pipe(zlib.createBrotliDecompress());
 
-    stream.on('data', (chunk: ArrayBuffer) => {
-      body += chunk.toString();
-    });
-
+    stream.on('data', (chunk: Buffer) => (body += chunk.toString()));
     stream.on('end', () => {
       const modifiedBody = this.htmlInjector.inject(body);
 
@@ -99,7 +117,6 @@ export class ProxyService {
       res.writeHead(proxyRes.statusCode || 200, headers);
       res.end(modifiedBody);
     });
-
     stream.on('error', (err: Error) => {
       this.logger.error(`Decompression error: ${err.message}`);
       res.writeHead(500, { 'Content-Type': 'text/plain' });
@@ -109,12 +126,9 @@ export class ProxyService {
 
   async stop (): Promise<void> {
     if (this.server) {
-      await new Promise<void>((resolve) => {
-        this.server!.close(() => {
-          this.logger.info('Proxy server stopped');
-          resolve();
-        });
-      });
+      await new Promise<void>((resolve) => this.server!.close(() => { resolve(); }));
+      this.logger.info('Proxy server stopped');
     }
+    this.proxy?.close();
   }
 }
