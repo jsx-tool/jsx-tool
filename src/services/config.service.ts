@@ -26,6 +26,7 @@ export class ConfigService {
   async loadFromFile (directory?: string): Promise<void> {
     const dir = directory || this.config.workingDirectory;
     const configPath = join(resolve(dir), 'filemap.json');
+    console.log('[filemap] Attempting to load config from:', configPath);
 
     if (existsSync(configPath)) {
       try {
@@ -33,6 +34,7 @@ export class ConfigService {
         const fileConfig = JSON.parse(fileContent);
 
         this.config = { ...this.config, ...fileConfig };
+        console.log('[filemap] Loaded config:', this.config);
 
         if (this.config.debug) {
           console.log(pc.gray(`Loaded config from ${configPath}`));
@@ -44,10 +46,25 @@ export class ConfigService {
   }
 
   setFromCliOptions (options: Partial<FilemapConfig>): void {
-    this.config = { ...this.config, ...options };
+    const filteredOptions: Partial<FilemapConfig> = {};
+    
+    Object.entries(options).forEach(([key, value]) => {
+      if (value !== undefined && value !== null) {
+        (filteredOptions as any)[key] = value;
+      }
+    });
+
+    this.config = { ...this.config, ...filteredOptions };
+    
+    if (this.config.debug) {
+      console.log('[filemap] Final config after CLI options:', this.config);
+    }
   }
 
   setWorkingDirectory (path: string): void {
+    if (!path) {
+      throw new Error('Working directory path cannot be undefined or empty');
+    }
     this.config.workingDirectory = resolve(path);
   }
 

@@ -1,29 +1,50 @@
 {
-  "name": "filemap-dev-server",
-  "version": "0.0.1",
-  "description": "Development server for filemap",
+  "name": "@filemap/cli",
+  "version": "1.0.0-beta.2",
+  "description": "Development server for filemap (BETA VERSION - FOR TESTING ONLY)",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "bin": {
-    "filemap": "./bin/filemap.js"
+    "filemap": "bin/filemap.js"
   },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/filemap/filemap-dev-server.git"
+  },
+  "keywords": [
+    "filemap",
+    "dev-server",
+    "proxy",
+    "websocket",
+    "development",
+    "beta"
+  ],
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "build": "tsc",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "test": "jest --detectOpenHandles",
-    "test:watch": "jest --watch"
+    "test:watch": "jest --watch",
+    "test:coverage": "jest --coverage --detectOpenHandles",
+    "prepublishOnly": "npm run build && npm test",
+    "release:patch": "npm version patch && git push --follow-tags",
+    "release:minor": "npm version minor && git push --follow-tags",
+    "release:major": "npm version major && git push --follow-tags",
+    "release:beta": "npm version prerelease --preid=beta && git push --follow-tags",
+    "release:rc": "npm version prerelease --preid=rc && git push --follow-tags"
   },
-  "keywords": [
-    "filemap",
-    "dev-server"
-  ],
-  "author": "",
+  "author": "filemap.ai",
   "license": "MIT",
   "dependencies": {
+    "@types/inquirer": "^9.0.8",
     "commander": "^14.0.0",
     "http-proxy": "^1.18.1",
+    "inquirer": "^12.7.0",
+    "latest-version": "^9.0.0",
     "picocolors": "^1.1.1",
     "reflect-metadata": "^0.2.2",
     "tsyringe": "^4.10.0",

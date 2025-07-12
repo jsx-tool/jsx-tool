@@ -17,11 +17,11 @@ export interface FilemapConfig {
 }
 
 export const DEFAULT_CONFIG: FilemapConfig = {
-  serverPort: 3001,
+  serverPort: 3000,
   serverHost: 'localhost',
   serverProtocol: 'http',
 
-  proxyPort: 3000,
+  proxyPort: 4000,
   proxyHost: 'localhost',
   proxyProtocol: 'http',
 
