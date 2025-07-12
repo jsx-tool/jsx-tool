@@ -169,6 +169,6 @@ export class KeyFetcher {
   }
 
   private getBackendUrl (): string {
-    return 'http://localhost:3000';
+    return 'https://filemap.ai';
   }
 }
