@@ -1,8 +1,7 @@
 import { injectable, singleton } from 'tsyringe';
-import { promises as fs } from 'fs';
+import { promises as fs, existsSync, readFileSync } from 'fs';
 import { join } from 'path';
 import inquirer from 'inquirer';
-import { existsSync, readFileSync } from 'fs';
 
 const DEFAULT_CONFIG = {
   serverPort: 3000,
@@ -19,23 +18,23 @@ const DEFAULT_CONFIG = {
 };
 
 export interface ConfigCreationResult {
-  created: boolean;
-  updated: boolean;
-  message: string;
-  error?: string;
+  created: boolean
+  updated: boolean
+  message: string
+  error?: string
 }
 
 export interface InteractiveConfigOptions {
-  interactive?: boolean;
-  directory?: string;
-  allOptions?: boolean;
+  interactive?: boolean
+  directory?: string
+  allOptions?: boolean
 }
 
 @singleton()
 @injectable()
 export class ConfigManagerService {
-  async createConfigFile(directory: string = process.cwd(), options: InteractiveConfigOptions = {}): Promise<ConfigCreationResult> {
-    const configPath = join(directory, 'filemap.json'); 
+  async createConfigFile (directory: string = process.cwd(), options: InteractiveConfigOptions = {}): Promise<ConfigCreationResult> {
+    const configPath = join(directory, 'filemap.json');
 
     const reactValidation = this.validateReactApp(directory);
     if (!reactValidation.isValid) {
@@ -46,10 +45,10 @@ export class ConfigManagerService {
         error: reactValidation.error
       };
     }
-    
+
     let existingConfig = null;
     let isUpdate = false;
-    
+
     try {
       await fs.access(configPath);
       const fileContent = await fs.readFile(configPath, 'utf8');
@@ -58,15 +57,15 @@ export class ConfigManagerService {
     } catch {
       existingConfig = { ...DEFAULT_CONFIG };
     }
-    
+
     let config = { ...existingConfig };
-    
+
     if (options.interactive) {
       config = await this.promptForConfiguration(options.allOptions, existingConfig);
     }
-    
+
     await fs.writeFile(configPath, JSON.stringify(config, null, 2) + '\n', 'utf8');
-    
+
     if (isUpdate) {
       return {
         created: false,
@@ -82,9 +81,9 @@ export class ConfigManagerService {
     }
   }
 
-  private validateReactApp(directory: string): { isValid: boolean; error?: string } {
+  private validateReactApp (directory: string): { isValid: boolean, error?: string } {
     const packageJsonPath = join(directory, 'package.json');
-    
+
     if (!existsSync(packageJsonPath)) {
       return {
         isValid: false,
@@ -96,9 +95,9 @@ export class ConfigManagerService {
       const packageJson = JSON.parse(readFileSync(packageJsonPath, 'utf8'));
       const dependencies = packageJson.dependencies || {};
       const devDependencies = packageJson.devDependencies || {};
-      
+
       const hasReact = dependencies.react || devDependencies.react;
-      
+
       if (!hasReact) {
         return {
           isValid: false,
@@ -115,20 +114,20 @@ export class ConfigManagerService {
     }
   }
 
-  private async promptForConfiguration(allOptions = false, existingConfig?: any) {
+  private async promptForConfiguration (allOptions = false, existingConfig?: any) {
     if (allOptions) {
-      return this.promptForAllConfiguration(existingConfig);
+      return await this.promptForAllConfiguration(existingConfig);
     } else {
-      return this.promptForPortConfiguration(existingConfig);
+      return await this.promptForPortConfiguration(existingConfig);
     }
   }
 
-  private async promptForPortConfiguration(existingConfig?: any) {
+  private async promptForPortConfiguration (existingConfig?: any) {
     const currentConfig = existingConfig || DEFAULT_CONFIG;
-    
+
     console.log('\n[filemap] Port Configuration Setup\n');
     console.log('Configure the ports for your filemap development server:\n');
-    
+
     const answers = await inquirer.prompt([
       {
         type: 'input',
@@ -171,12 +170,12 @@ export class ConfigManagerService {
     };
   }
 
-  private async promptForAllConfiguration(existingConfig?: any) {
+  private async promptForAllConfiguration (existingConfig?: any) {
     const currentConfig = existingConfig || DEFAULT_CONFIG;
-    
+
     console.log('\n[filemap] Full Configuration Setup\n');
     console.log('Configure all settings for your filemap development server:\n');
-    
+
     const answers = await inquirer.prompt([
       {
         type: 'input',
@@ -258,7 +257,7 @@ export class ConfigManagerService {
     };
   }
 
-  getDefaultConfig() {
+  getDefaultConfig () {
     return { ...DEFAULT_CONFIG };
   }
-} 
+}

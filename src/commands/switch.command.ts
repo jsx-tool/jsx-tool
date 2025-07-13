@@ -1,10 +1,10 @@
-import { Command } from 'commander';
+import type { Command } from 'commander';
 import { container } from 'tsyringe';
 import inquirer from 'inquirer';
 import { VersionManagerService } from '../services/version-manager.service';
 
 export class SwitchCommand {
-  public static register(program: Command): void {
+  public static register (program: Command): void {
     program
       .command('switch [version]')
       .description('Switch to a specific version of filemap CLI')
@@ -13,7 +13,7 @@ export class SwitchCommand {
       });
   }
 
-  private static async execute(version?: string): Promise<void> {
+  private static async execute (version?: string): Promise<void> {
     const versionManager = container.resolve(VersionManagerService);
 
     if (!version) {
@@ -23,12 +23,12 @@ export class SwitchCommand {
     }
   }
 
-  private static async interactiveSwitch(versionManager: VersionManagerService): Promise<void> {
+  private static async interactiveSwitch (versionManager: VersionManagerService): Promise<void> {
     console.log('[filemap] Fetching available versions...');
-    
+
     const currentVersion = versionManager.getCurrentVersion();
     const latestVersion = await versionManager.getLatestVersion();
-    
+
     if (!latestVersion) {
       console.error('[filemap] Could not fetch available versions.');
       return;
@@ -56,10 +56,10 @@ export class SwitchCommand {
     await SwitchCommand.switchToVersion(versionManager, selectedVersion);
   }
 
-  private static async switchToVersion(versionManager: VersionManagerService, version: string): Promise<void> {
+  private static async switchToVersion (versionManager: VersionManagerService, version: string): Promise<void> {
     const success = await versionManager.switchToVersion(version);
     if (!success) {
       process.exit(1);
     }
   }
-} 
+}

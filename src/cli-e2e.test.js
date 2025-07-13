@@ -1,4 +1,4 @@
-const { execSync } = require('child_process');
+import { execSync } from 'child_process';
 
 describe('CLI E2E', () => {
   it('should load and show help without errors', () => {
@@ -6,4 +6,4 @@ describe('CLI E2E', () => {
       execSync('node dist/index.js --help', { stdio: 'pipe' });
     }).not.toThrow();
   });
-}); 
+});

@@ -47,7 +47,7 @@ export class ConfigService {
 
   setFromCliOptions (options: Partial<FilemapConfig>): void {
     const filteredOptions: Partial<FilemapConfig> = {};
-    
+
     Object.entries(options).forEach(([key, value]) => {
       if (value !== undefined && value !== null) {
         (filteredOptions as any)[key] = value;
@@ -55,7 +55,7 @@ export class ConfigService {
     });
 
     this.config = { ...this.config, ...filteredOptions };
-    
+
     if (this.config.debug) {
       console.log('[filemap] Final config after CLI options:', this.config);
     }

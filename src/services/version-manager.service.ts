@@ -7,15 +7,15 @@ import { join } from 'path';
 const PKG_NAME = '@filemap/cli';
 
 export interface VersionInfo {
-  current: string;
-  available: string[];
-  latest: string;
+  current: string
+  available: string[]
+  latest: string
 }
 
 @singleton()
 @injectable()
 export class VersionManagerService {
-  async getAvailableVersions(): Promise<string[]> {
+  async getAvailableVersions (): Promise<string[]> {
     try {
       const latest = await latestVersion(PKG_NAME);
       return [latest];
@@ -25,7 +25,7 @@ export class VersionManagerService {
     }
   }
 
-  getCurrentVersion(): string {
+  getCurrentVersion (): string {
     try {
       const pkgPath = join(__dirname, '../../package.json');
       const pkg = JSON.parse(readFileSync(pkgPath, 'utf8'));
@@ -35,7 +35,7 @@ export class VersionManagerService {
     }
   }
 
-  async getVersionInfo(): Promise<VersionInfo> {
+  async getVersionInfo (): Promise<VersionInfo> {
     const current = this.getCurrentVersion();
     const available = await this.getAvailableVersions();
     const latest = available[0] || current;
@@ -47,7 +47,7 @@ export class VersionManagerService {
     };
   }
 
-  async switchToVersion(version: string): Promise<boolean> {
+  async switchToVersion (version: string): Promise<boolean> {
     try {
       console.log(`[filemap] Switching to version ${version}...`);
       execSync(`npm install -g ${PKG_NAME}@${version}`, { stdio: 'inherit' });
@@ -61,7 +61,7 @@ export class VersionManagerService {
     }
   }
 
-  async getLatestVersion(): Promise<string> {
+  async getLatestVersion (): Promise<string> {
     try {
       return await latestVersion(PKG_NAME);
     } catch (error) {
@@ -69,4 +69,4 @@ export class VersionManagerService {
       return this.getCurrentVersion();
     }
   }
-} 
+}

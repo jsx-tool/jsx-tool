@@ -1,9 +1,10 @@
-import { Command } from 'commander';
+import type { Command } from 'commander';
 import { container } from 'tsyringe';
-import { ServerManagerService, ServerOptions } from '../services/server-manager.service';
+import type { ServerOptions } from '../services/server-manager.service';
+import { ServerManagerService } from '../services/server-manager.service';
 
 export class StartCommand {
-  public static register(program: Command): void {
+  public static register (program: Command): void {
     program
       .command('start')
       .description('Start the development proxy server')
@@ -23,9 +24,9 @@ export class StartCommand {
       });
   }
 
-  private static async execute(options: any): Promise<void> {
+  private static async execute (options: any): Promise<void> {
     const serverManager = container.resolve(ServerManagerService);
-    
+
     try {
       await serverManager.startServer(options as ServerOptions);
     } catch (error) {

@@ -1,34 +1,33 @@
-import { injectable, singleton, inject } from 'tsyringe';
+import { injectable, singleton, inject, container } from 'tsyringe';
 import { Application } from '../app';
 import { ConfigService } from './config.service';
 import { Logger } from './logger.service';
 import { WorkingDirectoryValidationService } from './working-directory-validation.service';
-import { container } from 'tsyringe';
 
 export interface ServerOptions {
-  from?: string;
-  serverPort?: string;
-  serverHost?: string;
-  serverProtocol?: 'http' | 'https';
-  proxyPort?: string;
-  proxyHost?: string;
-  proxyProtocol?: 'http' | 'https';
-  wsPort?: string;
-  wsHost?: string;
-  wsProtocol?: 'ws' | 'wss';
-  debug?: boolean;
+  from?: string
+  serverPort?: string
+  serverHost?: string
+  serverProtocol?: 'http' | 'https'
+  proxyPort?: string
+  proxyHost?: string
+  proxyProtocol?: 'http' | 'https'
+  wsPort?: string
+  wsHost?: string
+  wsProtocol?: 'ws' | 'wss'
+  debug?: boolean
 }
 
 @singleton()
 @injectable()
 export class ServerManagerService {
-  constructor(
+  constructor (
     @inject(ConfigService) private readonly configService: ConfigService,
     @inject(Logger) private readonly logger: Logger,
     @inject(WorkingDirectoryValidationService) private readonly workingDirectoryValidationService: WorkingDirectoryValidationService
   ) {}
 
-  async startServer(options: ServerOptions): Promise<void> {
+  async startServer (options: ServerOptions): Promise<void> {
     this.logger.setDebug(options.debug || false);
 
     const workingDir = options.from || process.cwd();
@@ -44,9 +43,8 @@ export class ServerManagerService {
 
     await this.configService.loadFromFile(workingDir);
 
-
     const cliOptions: any = {};
-    
+
     if (options.serverPort !== undefined) {
       cliOptions.serverPort = parseInt(options.serverPort);
     }
@@ -90,4 +88,4 @@ export class ServerManagerService {
     const app = container.resolve(Application);
     await app.start();
   }
-} 
+}

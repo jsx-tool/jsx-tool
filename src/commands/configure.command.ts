@@ -1,9 +1,9 @@
-import { Command } from 'commander';
+import type { Command } from 'commander';
 import { container } from 'tsyringe';
 import { ConfigManagerService } from '../services/config-manager.service';
 
 export class ConfigureCommand {
-  public static register(program: Command): void {
+  public static register (program: Command): void {
     program
       .command('configure')
       .description('Configure filemap.json for your React project')
@@ -15,13 +15,13 @@ export class ConfigureCommand {
       });
   }
 
-  private static async execute(options: { all?: boolean; directory?: string; interactive?: boolean }): Promise<void> {
+  private static async execute (options: { all?: boolean, directory?: string, interactive?: boolean }): Promise<void> {
     const configManager = container.resolve(ConfigManagerService);
-    const result = await configManager.createConfigFile(options.directory, { 
+    const result = await configManager.createConfigFile(options.directory, {
       interactive: options.interactive !== false,
-      allOptions: options.all 
+      allOptions: options.all
     });
-    
+
     if (result.error) {
       console.error(result.message);
       console.error(`Error: ${result.error}`);
@@ -30,4 +30,4 @@ export class ConfigureCommand {
       console.log(result.message);
     }
   }
-} 
+}
