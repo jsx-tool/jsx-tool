@@ -1,0 +1,67 @@
+name: Orchestrator
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_ci:
+        description: "Run CI workflow?"
+        required: true
+        default: "yes"
+        type: choice
+        options: [yes, no]
+      run_publish:
+        description: "Run Publish workflow?"
+        required: true
+        default: "no"
+        type: choice
+        options: [yes, no]
+      run_security:
+        description: "Run Security workflow?"
+        required: true
+        default: "no"
+        type: choice
+        options: [yes, no]
+      branch:
+        description: "Branch to use"
+        required: true
+        default: "main"
+
+jobs:
+  determine:
+    runs-on: ubuntu-latest
+    outputs:
+      run_ci: ${{ steps.set.outputs.run_ci }}
+      run_publish: ${{ steps.set.outputs.run_publish }}
+      run_security: ${{ steps.set.outputs.run_security }}
+      branch: ${{ steps.set.outputs.branch }}
+    steps:
+      - id: set
+        run: |
+          echo "run_ci=${{ github.event.inputs.run_ci }}" >> $GITHUB_OUTPUT
+          echo "run_publish=${{ github.event.inputs.run_publish }}" >> $GITHUB_OUTPUT
+          echo "run_security=${{ github.event.inputs.run_security }}" >> $GITHUB_OUTPUT
+          echo "branch=${{ github.event.inputs.branch }}" >> $GITHUB_OUTPUT
+
+  ci:
+    needs: determine
+    if: needs.determine.outputs.run_ci == 'yes'
+    uses: ./.github/workflows/ci.yml
+    with:
+      branch: ${{ needs.determine.outputs.branch }}
+    secrets: inherit
+
+  publish:
+    needs: determine
+    if: needs.determine.outputs.run_publish == 'yes'
+    uses: ./.github/workflows/publish.yml
+    with:
+      branch: ${{ needs.determine.outputs.branch }}
+    secrets: inherit
+
+  security:
+    needs: determine
+    if: needs.determine.outputs.run_security == 'yes'
+    uses: ./.github/workflows/security.yml
+    with:
+      branch: ${{ needs.determine.outputs.branch }}
+    secrets: inherit
