@@ -6,21 +6,21 @@ on:
       run_ci:
         description: "Run CI workflow?"
         required: true
-        default: "yes"
+        default: "true"
         type: choice
-        options: [yes, no]
+        options: [true, false]
       run_publish:
         description: "Run Publish workflow?"
         required: true
-        default: "no"
+        default: "false"
         type: choice
-        options: [yes, no]
+        options: [true, false]
       run_security:
         description: "Run Security workflow?"
         required: true
-        default: "no"
+        default: "false"
         type: choice
-        options: [yes, no]
+        options: [true, false]
       branch:
         description: "Branch to use"
         required: true
@@ -44,7 +44,7 @@ jobs:
 
   ci:
     needs: determine
-    if: needs.determine.outputs.run_ci == 'yes'
+    if: needs.determine.outputs.run_ci == 'true'
     uses: ./.github/workflows/ci.yml
     with:
       branch: ${{ needs.determine.outputs.branch }}
@@ -52,7 +52,7 @@ jobs:
 
   publish:
     needs: determine
-    if: needs.determine.outputs.run_publish == 'yes'
+    if: needs.determine.outputs.run_publish == 'true'
     uses: ./.github/workflows/publish.yml
     with:
       branch: ${{ needs.determine.outputs.branch }}
@@ -60,7 +60,7 @@ jobs:
 
   security:
     needs: determine
-    if: needs.determine.outputs.run_security == 'yes'
+    if: needs.determine.outputs.run_security == 'true'
     uses: ./.github/workflows/security.yml
     with:
       branch: ${{ needs.determine.outputs.branch }}
