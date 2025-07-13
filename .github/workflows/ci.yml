@@ -1,10 +1,12 @@
 name: CI
 
 on:
-  push:
-    branches: [main, develop]
-  pull_request:
-    branches: [main, develop]
+  workflow_call:
+    inputs:
+      branch:
+        required: false
+        type: string
+        default: "main"
 
 jobs:
   test:

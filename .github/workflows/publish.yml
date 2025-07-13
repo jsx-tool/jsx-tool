@@ -1,11 +1,12 @@
 name: Publish to NPM
 
 on:
-  push:
-    tags:
-      - "v*"
-      - "*-beta*"
-      - "*-rc*"
+  workflow_call:
+    inputs:
+      branch:
+        required: false
+        type: string
+        default: "main"
 
 jobs:
   publish:

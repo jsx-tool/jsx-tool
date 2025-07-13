@@ -1,6 +1,12 @@
 name: Security
 
 on:
+  workflow_call:
+    inputs:
+      branch:
+        required: false
+        type: string
+        default: "main"
   schedule:
     # Run weekly on Sundays at 2 AM UTC
     - cron: "0 2 * * 0"
