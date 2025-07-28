@@ -12,6 +12,7 @@ import type {
   ProjectInfo,
   ReadFileArgs,
   ReadFileResult,
+  RmResult,
   TreeResult,
   WriteFileArgs,
   WriteFileResult
@@ -30,6 +31,9 @@ export interface RequestParamMap {
     filePath: string
   }
   ls: LsArgs
+  rm: {
+    path: string
+  }
   tree: {
     filePath: string
   }
@@ -44,6 +48,9 @@ export interface RequestParamMap {
   }
   ls_many: {
     dirs: LsArgs[]
+  }
+  rm_many: {
+    paths: Array<{ path: string }>
   }
   tree_many: {
     dirPaths: string[]
@@ -79,6 +86,10 @@ export interface EventPayloadMap {
     filePath: string
     response: LsResult
   }
+  rm: {
+    path: string
+    response: RmResult
+  }
   tree: {
     filePath: string
     response: TreeResult
@@ -98,6 +109,10 @@ export interface EventPayloadMap {
   ls_many: {
     dirs: LsArgs[]
     responses: LsResult[]
+  }
+  rm_many: {
+    paths: Array<{ path: string }>
+    responses: RmResult[]
   }
   tree_many: {
     dirPaths: string[]
@@ -146,11 +161,13 @@ const signedEvents = new Set<keyof RequestParamMap>([
   'write_file',
   'exists',
   'ls',
+  'rm',
   'tree',
   'read_file_many',
   'write_file_many',
   'exists_many',
   'ls_many',
+  'rm_many',
   'tree_many',
   'open_element',
   'open_file',
@@ -288,6 +305,7 @@ export class WebSocketService {
           );
           break;
         }
+
         case 'write_file': {
           const res = this.fileSystemApi.writeToFile(
             message.params.filePath,
@@ -302,6 +320,7 @@ export class WebSocketService {
           );
           break;
         }
+
         case 'exists': {
           const res = this.fileSystemApi.exists(message.params.filePath);
           socket.send(
@@ -312,6 +331,7 @@ export class WebSocketService {
           );
           break;
         }
+
         case 'ls': {
           const res = this.fileSystemApi.ls(
             message.params.dirPath,
@@ -325,6 +345,18 @@ export class WebSocketService {
           );
           break;
         }
+
+        case 'rm': {
+          const res = this.fileSystemApi.rm(message.params.path);
+          socket.send(
+            this.serializeResponseMessage(message, {
+              path: message.params.path,
+              response: res
+            })
+          );
+          break;
+        }
+
         case 'tree': {
           const res = this.fileSystemApi.tree(
             message.params.filePath
@@ -375,6 +407,17 @@ export class WebSocketService {
           socket.send(
             this.serializeResponseMessage(message, {
               dirs: message.params.dirs,
+              responses: res
+            })
+          );
+          break;
+        }
+
+        case 'rm_many': {
+          const res = this.fileSystemApi.rmMany(message.params.paths);
+          socket.send(
+            this.serializeResponseMessage(message, {
+              paths: message.params.paths,
               responses: res
             })
           );

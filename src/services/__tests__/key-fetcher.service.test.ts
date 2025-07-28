@@ -59,7 +59,7 @@ describe('KeyFetcher', () => {
 
             expect(mockLogger.info).toHaveBeenCalledWith(`Starting key fetch for UUID: ${uuid}`);
             expect(mockFetch).toHaveBeenCalledWith(
-                `http://localhost:3000/api/fetch-key/${uuid}`,
+                `https://filemap.ai/api/fetch-key/${uuid}`,
                 {
                     method: 'GET',
                     headers: {
