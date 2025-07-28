@@ -6,6 +6,7 @@ jest.mock('path', () => ({
   relative: jest.fn(),
   join: jest.fn(),
   extname: jest.fn(),
+  dirname: jest.fn(),
   isAbsolute: jest.fn(),
   watch: jest.fn(() => ({ close: jest.fn() })),
 }));
@@ -287,6 +288,45 @@ describe('FileSystemApiService', () => {
       expect(result.success).toBe(true);
       expect(fs.writeFileSync).toHaveBeenCalled();
     });
+
+    it('should create parent directories if they do not exist', () => {
+      (fs.existsSync as jest.Mock).mockReturnValue(false);
+      (fs.mkdirSync as jest.Mock).mockImplementation(() => { });
+      (fs.writeFileSync as jest.Mock).mockImplementation(() => { });
+      (path.dirname as jest.Mock).mockReturnValue('/project/root/src/new-folder');
+
+      const result = service.writeToFile('src/new-folder/component.tsx', mockContent);
+
+      expect(result.success).toBe(true);
+      expect(fs.mkdirSync).toHaveBeenCalledWith('/project/root/src/new-folder', { recursive: true });
+      expect(fs.writeFileSync).toHaveBeenCalled();
+    });
+
+    it('should not create directories if parent already exists', () => {
+      (fs.existsSync as jest.Mock).mockReturnValue(true);
+      (fs.writeFileSync as jest.Mock).mockImplementation(() => { });
+      (path.dirname as jest.Mock).mockReturnValue('/project/root/src');
+
+      const result = service.writeToFile('src/existing.js', mockContent);
+
+      expect(result.success).toBe(true);
+      expect(fs.mkdirSync).not.toHaveBeenCalled();
+      expect(fs.writeFileSync).toHaveBeenCalled();
+    });
+
+    it('should handle directory creation errors gracefully', () => {
+      (fs.existsSync as jest.Mock).mockReturnValue(false);
+      (fs.mkdirSync as jest.Mock).mockImplementation(() => {
+        throw new Error('Cannot create directory');
+      });
+      (path.dirname as jest.Mock).mockReturnValue('/project/root/src/new-folder');
+
+      const result = service.writeToFile('src/new-folder/component.tsx', mockContent);
+
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('Error writing file: Cannot create directory');
+      expect(fs.writeFileSync).not.toHaveBeenCalled();
+    });
   });
 
   describe('exists', () => {
@@ -514,6 +554,152 @@ describe('FileSystemApiService', () => {
 
       expect(result.success).toBe(false);
       expect(result.error).toContain('Directory must be within working directory');
+    });
+  });
+
+  describe('rm', () => {
+    beforeEach(() => {
+      const pathMock = path as jest.Mocked<typeof path>;
+      pathMock.resolve.mockImplementation((p) =>
+        p.startsWith('/') ? p : `/project/root/${p}`
+      );
+      pathMock.relative.mockImplementation((from, to) => {
+        if (to.startsWith(from)) {
+          return to.slice(from.length + 1);
+        }
+        return '..' + to;
+      });
+      pathMock.extname.mockImplementation((p) => {
+        const parts = p.split('.');
+        return parts.length > 1 ? `.${parts[parts.length - 1]}` : '';
+      });
+      pathMock.isAbsolute.mockImplementation((p) => p.startsWith('/'));
+    });
+
+    it('should remove allowed file successfully', () => {
+      (fs.existsSync as jest.Mock).mockReturnValue(true);
+      (fs.statSync as jest.Mock).mockReturnValue({
+        isFile: () => true,
+        isDirectory: () => false
+      });
+      (fs.unlinkSync as jest.Mock).mockImplementation(() => { });
+
+      const result = service.rm('src/old-file.js');
+
+      expect(result.success).toBe(true);
+      expect(fs.unlinkSync).toHaveBeenCalledWith('/project/root/src/old-file.js');
+    });
+
+    it('should fail when file does not exist', () => {
+      (fs.existsSync as jest.Mock).mockReturnValue(false);
+
+      const result = service.rm('src/missing.js');
+
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('File not found');
+      expect(fs.unlinkSync).not.toHaveBeenCalled();
+    });
+
+    it('should fail when path is a directory', () => {
+      (fs.existsSync as jest.Mock).mockReturnValue(true);
+      (fs.statSync as jest.Mock).mockReturnValue({
+        isFile: () => false,
+        isDirectory: () => true
+      });
+
+      const result = service.rm('src/components');
+
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('Path is not a file');
+      expect(fs.unlinkSync).not.toHaveBeenCalled();
+    });
+
+    it('should fail for disallowed file extensions', () => {
+      (fs.existsSync as jest.Mock).mockReturnValue(true);
+      (fs.statSync as jest.Mock).mockReturnValue({
+        isFile: () => true,
+        isDirectory: () => false
+      });
+
+      const result = service.rm('src/malware.exe');
+
+      expect(result.success).toBe(false);
+      expect(result.error).toContain("File type '.exe' is not allowed");
+      expect(fs.unlinkSync).not.toHaveBeenCalled();
+    });
+
+    it('should fail for paths outside working directory', () => {
+      (fs.existsSync as jest.Mock).mockReturnValue(true);
+      (fs.statSync as jest.Mock).mockReturnValue({
+        isFile: () => true,
+        isDirectory: () => false
+      });
+      (path.relative as jest.Mock).mockReturnValue('../../../etc/passwd');
+
+      const result = service.rm('/etc/passwd');
+
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('Path must be within working directory');
+      expect(fs.unlinkSync).not.toHaveBeenCalled();
+    });
+
+    it('should handle unlink errors gracefully', () => {
+      (fs.existsSync as jest.Mock).mockReturnValue(true);
+      (fs.statSync as jest.Mock).mockReturnValue({
+        isFile: () => true,
+        isDirectory: () => false
+      });
+      (fs.unlinkSync as jest.Mock).mockImplementation(() => {
+        throw new Error('Permission denied');
+      });
+
+      const result = service.rm('src/protected.js');
+
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('Error removing file: Permission denied');
+    });
+  });
+
+  describe('rmMany', () => {
+    it('should remove multiple files successfully', () => {
+      (fs.existsSync as jest.Mock).mockReturnValue(true);
+      (fs.statSync as jest.Mock).mockReturnValue({
+        isFile: () => true,
+        isDirectory: () => false
+      });
+      (fs.unlinkSync as jest.Mock).mockImplementation(() => {});
+
+      const results = service.rmMany([
+        { path: 'src/file1.js' },
+        { path: 'src/file2.ts' }
+      ]);
+
+      expect(results).toHaveLength(2);
+      expect(results[0].success).toBe(true);
+      expect(results[1].success).toBe(true);
+      expect(fs.unlinkSync).toHaveBeenCalledTimes(2);
+    });
+
+    it('should handle mixed success and failure results', () => {
+      (fs.existsSync as jest.Mock)
+        .mockReturnValueOnce(true)
+        .mockReturnValueOnce(false);
+      (fs.statSync as jest.Mock).mockReturnValue({
+        isFile: () => true,
+        isDirectory: () => false
+      });
+      (fs.unlinkSync as jest.Mock).mockImplementation(() => {});
+
+      const results = service.rmMany([
+        { path: 'src/exists.js' },
+        { path: 'src/missing.js' }
+      ]);
+
+      expect(results).toHaveLength(2);
+      expect(results[0].success).toBe(true);
+      expect(results[1].success).toBe(false);
+      expect(results[1].error).toContain('File not found');
+      expect(fs.unlinkSync).toHaveBeenCalledTimes(1);
     });
   });
 

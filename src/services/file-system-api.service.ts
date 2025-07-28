@@ -1,8 +1,8 @@
 import 'reflect-metadata';
 import { injectable, singleton, inject } from 'tsyringe';
 import type { FSWatcher, Stats } from 'fs';
-import { readFileSync, writeFileSync, existsSync, readdirSync, statSync, watch } from 'fs';
-import { resolve, join, relative, extname } from 'path';
+import { readFileSync, writeFileSync, existsSync, readdirSync, statSync, watch, mkdirSync, unlinkSync } from 'fs';
+import { resolve, join, relative, extname, dirname } from 'path';
 import * as path from 'path';
 import { ConfigService } from './config.service';
 
@@ -62,6 +62,15 @@ export interface WriteFileArgs {
 export interface LsArgs {
   dirPath: string
   options?: { recursive?: boolean, filesOnly?: boolean, directoriesOnly?: boolean }
+}
+
+export interface RmResult {
+  success: boolean
+  error?: string
+}
+
+export interface RmArgs {
+  path: string
 }
 
 @singleton()
@@ -205,6 +214,11 @@ export class FileSystemApiService {
         };
       }
 
+      const dir = dirname(absolutePath);
+      if (!existsSync(dir)) {
+        mkdirSync(dir, { recursive: true });
+      }
+
       writeFileSync(absolutePath, content, encoding);
 
       return {
@@ -328,6 +342,47 @@ export class FileSystemApiService {
 
   lsMany (args: LsArgs[]): LsResult[] {
     return args.map(({ dirPath, options }) => this.ls(dirPath, options));
+  }
+
+  rm (filePath: string): RmResult {
+    try {
+      const absolutePath = resolve(filePath);
+
+      if (!existsSync(absolutePath)) {
+        return {
+          success: false,
+          error: `File not found: ${absolutePath}`
+        };
+      }
+
+      const stats = statSync(absolutePath);
+      if (!stats.isFile()) {
+        return {
+          success: false,
+          error: `Path is not a file: ${absolutePath}`
+        };
+      }
+
+      const safetyCheck = this.isPathSafe(absolutePath, stats);
+      if (!safetyCheck.safe) {
+        return {
+          success: false,
+          error: safetyCheck.reason
+        };
+      }
+
+      unlinkSync(absolutePath);
+      return { success: true };
+    } catch (error) {
+      return {
+        success: false,
+        error: `Error removing file: ${(error as Error).message}`
+      };
+    }
+  }
+
+  rmMany (args: RmArgs[]): RmResult[] {
+    return args.map(({ path }) => this.rm(path));
   }
 
   tree (dirStr: string): TreeResult {
