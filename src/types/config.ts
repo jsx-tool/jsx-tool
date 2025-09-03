@@ -12,6 +12,7 @@ export interface FilemapConfig {
   wsProtocol: 'ws' | 'wss'
 
   workingDirectory: string
+  nodeModulesDir?: string
   debug: boolean
   injectAt: string
 }
@@ -30,6 +31,7 @@ export const DEFAULT_CONFIG: FilemapConfig = {
   wsProtocol: 'ws',
 
   workingDirectory: process.cwd(),
+  nodeModulesDir: undefined,
   debug: false,
   injectAt: '</head>'
 };

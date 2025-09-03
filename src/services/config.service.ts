@@ -21,6 +21,7 @@ export class ConfigService {
     if (process.env.FILEMAP_PROXY_HOST) this.config.proxyHost = process.env.FILEMAP_PROXY_HOST;
     if (process.env.FILEMAP_WS_PORT) this.config.wsPort = parseInt(process.env.FILEMAP_WS_PORT);
     if (process.env.FILEMAP_WS_HOST) this.config.wsHost = process.env.FILEMAP_WS_HOST;
+    if (process.env.FILEMAP_NODE_MODULES_DIR) this.config.nodeModulesDir = process.env.FILEMAP_NODE_MODULES_DIR;
   }
 
   async loadFromFile (directory?: string): Promise<void> {
@@ -31,7 +32,6 @@ export class ConfigService {
       try {
         const fileContent = readFileSync(configPath, 'utf8');
         const fileConfig = JSON.parse(fileContent);
-
         this.config = { ...this.config, ...fileConfig };
 
         if (this.config.debug) {
@@ -51,6 +51,10 @@ export class ConfigService {
     this.config.workingDirectory = resolve(path);
   }
 
+  setNodeModulesDirectory (path: string): void {
+    this.config.nodeModulesDir = resolve(path);
+  }
+
   getConfig (): Readonly<FilemapConfig> {
     return { ...this.config };
   }
@@ -61,9 +65,11 @@ export class ConfigService {
     if (this.config.serverPort < 1 || this.config.serverPort > 65535) {
       errors.push('Server port must be between 1 and 65535');
     }
+
     if (this.config.proxyPort < 1 || this.config.proxyPort > 65535) {
       errors.push('Proxy port must be between 1 and 65535');
     }
+
     if (this.config.wsPort < 1 || this.config.wsPort > 65535) {
       errors.push('WebSocket port must be between 1 and 65535');
     }
@@ -71,11 +77,20 @@ export class ConfigService {
     if (!['http', 'https'].includes(this.config.serverProtocol)) {
       errors.push('Server protocol must be http or https');
     }
+
     if (!['http', 'https'].includes(this.config.proxyProtocol)) {
       errors.push('Proxy protocol must be http or https');
     }
+
     if (!['ws', 'wss'].includes(this.config.wsProtocol)) {
       errors.push('WebSocket protocol must be ws or wss');
+    }
+
+    if (this.config.nodeModulesDir) {
+      const nodeModulesPath = join(this.config.nodeModulesDir, 'node_modules');
+      if (!existsSync(nodeModulesPath)) {
+        errors.push(`node_modules directory not found at: ${nodeModulesPath}`);
+      }
     }
 
     return { valid: errors.length === 0, errors };

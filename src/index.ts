@@ -15,6 +15,7 @@ async function main () {
     .description('Development proxy server')
     .version('0.0.1')
     .option('-f, --from <path>', 'working directory', process.cwd())
+    .option('--node-modules-dir <path>', 'node_modules directory (defaults to working directory or auto-detect)')
     .option('--server-port <port>', 'target server port', '3001')
     .option('--server-host <host>', 'target server host', 'localhost')
     .option('--server-protocol <protocol>', 'target server protocol (http|https)', 'http')
@@ -34,16 +35,39 @@ async function main () {
 
       logger.setDebug(options.debug);
 
-      const validation = workingDirectoryValidationService.validateWorkingDirectory(options.from);
+      let nodeModulesDir = options.nodeModulesDir;
+      if (!nodeModulesDir) {
+        const detectedDir = workingDirectoryValidationService.findNodeModulesWithPackage(
+          options.from,
+          'react'
+        );
+        if (detectedDir) {
+          nodeModulesDir = detectedDir;
+          if (options.debug) {
+            logger.debug(`Auto-detected node_modules directory: ${nodeModulesDir}`);
+          }
+        }
+      }
+
+      const validation = workingDirectoryValidationService.validateWorkingDirectory(
+        options.from,
+        nodeModulesDir
+      );
 
       if (!validation.isValid) {
         logger.error('Invalid working directory:');
         validation.errors.forEach(error => { logger.error(`  • ${error}`); });
+
+        if (validation.errors.some(e => e.includes('not installed'))) {
+          logger.info('\nHint: If this is a monorepo, try specifying --node-modules-dir <path>');
+          logger.info('      pointing to the root directory containing node_modules');
+        }
+
         process.exit(1);
       }
 
       config.setWorkingDirectory(options.from);
-
+      config.setNodeModulesDirectory(nodeModulesDir || options.from);
       await config.loadFromFile(options.from);
 
       config.setFromCliOptions({
@@ -56,7 +80,8 @@ async function main () {
         wsPort: parseInt(options.wsPort),
         wsHost: options.wsHost,
         wsProtocol: options.wsProtocol as 'ws' | 'wss',
-        debug: options.debug
+        debug: options.debug,
+        nodeModulesDir
       });
 
       const app = container.resolve(Application);

@@ -137,10 +137,20 @@ export class FileSystemApiService {
     stats?: Stats
   ): { safe: boolean, reason?: string } {
     const absolutePath = resolve(filePath);
-    const workingDir = this.configService.getConfig().workingDirectory;
-    const rel = relative(workingDir, absolutePath);
+    const config = this.configService.getConfig();
+    const workingDir = config.workingDirectory;
+    const nodeModulesDir = config.nodeModulesDir ? resolve(config.nodeModulesDir) : null;
 
-    if (rel.startsWith('..') || path.isAbsolute(rel)) {
+    const relativeToWorking = relative(workingDir, absolutePath);
+    const isInWorkingDir = !relativeToWorking.startsWith('..') && !path.isAbsolute(relativeToWorking);
+
+    let isInNodeModulesDir = false;
+    if (nodeModulesDir) {
+      const relativeToNodeModules = relative(nodeModulesDir, absolutePath);
+      isInNodeModulesDir = !relativeToNodeModules.startsWith('..') && !path.isAbsolute(relativeToNodeModules);
+    }
+
+    if (!isInWorkingDir && !isInNodeModulesDir) {
       return {
         safe: false,
         reason: `Path must be within working directory: ${workingDir}`
@@ -286,9 +296,20 @@ export class FileSystemApiService {
         };
       }
 
-      const workingDir = this.configService.getConfig().workingDirectory;
-      const relativePath = relative(workingDir, absolutePath);
-      if (relativePath.startsWith('..') || path.isAbsolute(relativePath)) {
+      const config = this.configService.getConfig();
+      const workingDir = config.workingDirectory;
+      const nodeModulesDir = config.nodeModulesDir ? resolve(config.nodeModulesDir) : null;
+
+      const relativeToWorking = relative(workingDir, absolutePath);
+      const isInWorkingDir = !relativeToWorking.startsWith('..') && !path.isAbsolute(relativeToWorking);
+
+      let isInNodeModulesDir = false;
+      if (nodeModulesDir) {
+        const relativeToNodeModules = relative(nodeModulesDir, absolutePath);
+        isInNodeModulesDir = !relativeToNodeModules.startsWith('..') && !path.isAbsolute(relativeToNodeModules);
+      }
+
+      if (!isInWorkingDir && !isInNodeModulesDir) {
         return {
           success: false,
           error: `Directory must be within working directory: ${workingDir}`
@@ -388,9 +409,11 @@ export class FileSystemApiService {
   tree (dirStr: string): TreeResult {
     try {
       const workingDir = resolve(dirStr);
+      const config = this.configService.getConfig();
       const files: string[] = [];
       const packageJsonPath = join(workingDir, 'package.json');
       let installedPackages = new Set<string>();
+
       try {
         const packageJson = JSON.parse(readFileSync(packageJsonPath, 'utf8'));
         const deps = packageJson.dependencies || {};
@@ -402,8 +425,12 @@ export class FileSystemApiService {
           error: `Could not read package.json: ${(error as Error).message}`
         };
       }
-      this.treeWalk(workingDir, files, workingDir, installedPackages);
+
+      const nodeModulesBase = config.nodeModulesDir ? resolve(config.nodeModulesDir) : workingDir;
+
+      this.treeWalk(workingDir, files, workingDir, installedPackages, nodeModulesBase);
       files.sort();
+
       return {
         success: true,
         files
@@ -424,7 +451,8 @@ export class FileSystemApiService {
     currentPath: string,
     files: string[],
     rootPath: string,
-    installedPackages: Set<string>
+    installedPackages: Set<string>,
+    nodeModulesBase?: string
   ): void {
     try {
       const entries = readdirSync(currentPath);
@@ -442,8 +470,20 @@ export class FileSystemApiService {
                   this.addPackageMainFiles(packagePath, files);
                 }
               }
+
+              if (nodeModulesBase && nodeModulesBase !== rootPath) {
+                const alternateNodeModules = join(nodeModulesBase, 'node_modules');
+                if (existsSync(alternateNodeModules)) {
+                  for (const packageName of installedPackages) {
+                    const packagePath = join(alternateNodeModules, packageName);
+                    if (existsSync(packagePath) && statSync(packagePath).isDirectory()) {
+                      this.addPackageMainFiles(packagePath, files);
+                    }
+                  }
+                }
+              }
             } else if (!relativePath.includes('node_modules')) {
-              this.treeWalk(entryPath, files, rootPath, installedPackages);
+              this.treeWalk(entryPath, files, rootPath, installedPackages, nodeModulesBase);
             }
           } else {
             const ext = extname(entry).toLowerCase();
