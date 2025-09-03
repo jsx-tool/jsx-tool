@@ -14,7 +14,10 @@ export interface WorkingDirectoryValidation {
 @singleton()
 @injectable()
 export class WorkingDirectoryValidationService {
-  validateWorkingDirectory (directory: string): WorkingDirectoryValidation {
+  validateWorkingDirectory (
+    directory: string,
+    nodeModulesDir?: string
+  ): WorkingDirectoryValidation {
     const result: WorkingDirectoryValidation = {
       isValid: false,
       hasPackageJson: false,
@@ -48,7 +51,6 @@ export class WorkingDirectoryValidationService {
 
       const dependencies = packageJson.dependencies || {};
       const devDependencies = packageJson.devDependencies || {};
-
       const reactVersion = dependencies.react || devDependencies.react;
 
       if (!reactVersion) {
@@ -58,9 +60,24 @@ export class WorkingDirectoryValidationService {
 
       result.hasReact = true;
       result.reactVersion = reactVersion;
+      const nodeModulesBase = nodeModulesDir ? resolve(nodeModulesDir) : resolvedDir;
 
-      const nodeModulesReactPath = join(resolvedDir, 'node_modules', 'react');
-      if (!existsSync(nodeModulesReactPath)) {
+      let foundReact = false;
+      let checkDir = nodeModulesBase;
+      const root = resolve('/');
+
+      while (checkDir !== root) {
+        const candidatePath = join(checkDir, 'node_modules', 'react');
+        if (existsSync(candidatePath)) {
+          foundReact = true;
+          break;
+        }
+        const parentDir = resolve(checkDir, '..');
+        if (parentDir === checkDir) break;
+        checkDir = parentDir;
+      }
+
+      if (!foundReact) {
         result.errors.push('React is in package.json but not installed (run npm install)');
         return result;
       }
@@ -95,5 +112,22 @@ export class WorkingDirectoryValidationService {
   ensureDirectoryExists (directory: string): boolean {
     const resolvedDir = resolve(directory);
     return existsSync(resolvedDir) && statSync(resolvedDir).isDirectory();
+  }
+
+  findNodeModulesWithPackage (startDir: string, packageName: string): string | null {
+    let checkDir = resolve(startDir);
+    const root = resolve('/');
+
+    while (checkDir !== root) {
+      const candidatePath = join(checkDir, 'node_modules', packageName);
+      if (existsSync(candidatePath)) {
+        return checkDir;
+      }
+      const parentDir = resolve(checkDir, '..');
+      if (parentDir === checkDir) break;
+      checkDir = parentDir;
+    }
+
+    return null;
   }
 }

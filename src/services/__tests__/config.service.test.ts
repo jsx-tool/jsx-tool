@@ -6,7 +6,7 @@ import * as fs from 'fs';
 jest.mock('fs');
 
 describe('ConfigService', () => {
-    let configService: ConfigService;
+  let configService: ConfigService;
   const mockFs = fs as jest.Mocked<typeof fs>;
   let consoleErrorSpy: jest.SpyInstance;
 
