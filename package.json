@@ -1,25 +1,48 @@
 {
   "name": "filemap-dev-server",
   "version": "0.0.1",
-  "description": "Development server for filemap",
+  "description": "Development server for JSX Tool",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "bin": {
-    "filemap": "./bin/filemap.js"
+    "jsx-tool": "./bin/jsx-tool.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.js"
+    },
+    "./vite": {
+      "types": "./dist/esm/vite-plugin.d.ts",
+      "import": "./dist/esm/vite-plugin.js",
+      "require": "./dist/vite-plugin.js"
+    }
   },
   "scripts": {
-    "dev": "tsx watch src/index.ts",
-    "build": "tsc",
+    "build": "tsc && tsc -p tsconfig.esm.json",
+    "build:watch": "tsc --watch",
+    "build:esm:watch": "tsc -p tsconfig.esm.json --watch",
+    "dev:all": "concurrently \"npm run build:watch\" \"npm run build:esm:watch\"",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "test": "jest --detectOpenHandles",
     "test:watch": "jest --watch"
   },
   "keywords": [
-    "filemap",
-    "dev-server"
+    "jsx-tool",
+    "jsx tool",
+    "react jsx tool",
+    "jsx tools",
+    "jsx dev tool",
+    "jsx",
+    "dev-tools",
+    "react-jsx",
+    "react-dev-tools",
+    "jsx-dev-server",
+    "jsx-tool-dev-server"
   ],
-  "author": "",
+  "author": "Stanton Street Inc.",
   "license": "MIT",
   "dependencies": {
     "commander": "^14.0.0",

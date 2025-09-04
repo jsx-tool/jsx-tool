@@ -11,7 +11,7 @@ async function main () {
   const program = new Command();
 
   program
-    .name('filemap')
+    .name('jsx-tool')
     .description('Development proxy server')
     .version('0.0.1')
     .option('-f, --from <path>', 'working directory', process.cwd())

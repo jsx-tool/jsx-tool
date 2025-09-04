@@ -11,7 +11,7 @@ import { DesktopClientRegistryService } from './desktop-client-registry.service'
 
 @singleton()
 @injectable()
-export class FilemapDesktopSocketService {
+export class JSXToolDesktopSocketService {
   private readonly socketPath: string;
   private server: Server | null = null;
   private readonly clients = new Set<Socket>();
@@ -156,14 +156,14 @@ export class FilemapDesktopSocketService {
 }
 
 function getSocketPath (): string {
-  if (os.platform() === 'win32') return '\\\\.\\pipe\\filemap-desktop-sock';
+  if (os.platform() === 'win32') return '\\\\.\\pipe\\jsx-tool-desktop-sock';
 
   const dir =
     process.env.XDG_RUNTIME_DIR ||
-    (process.env.HOME ? path.join(process.env.HOME, '.filemap') : '/tmp');
+    (process.env.HOME ? path.join(process.env.HOME, '.jsx-tool') : '/tmp');
 
   if (!existsSync(dir)) {
     try { mkdirSync(dir, { recursive: true }); } catch {}
   }
-  return path.join(dir, 'filemap-desktop.sock');
+  return path.join(dir, 'jsx-tool-desktop.sock');
 }

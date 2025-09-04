@@ -1,5 +1,5 @@
 import 'reflect-metadata';
-import { FilemapDesktopSocketService } from '../filemap-desktop-socket.service';
+import { JSXToolDesktopSocketService } from '../jsx-tool-desktop-socket.service';
 
 import * as fs from 'fs';
 import * as net from 'net';
@@ -19,20 +19,20 @@ jest.setTimeout(10000);
 
 function tempSocketPath(): string {
   return os.platform() === 'win32'
-    ? `\\\\.\\pipe\\filemap-desktop-sock-test-${Date.now()}`
-    : path.join(os.tmpdir(), `filemap-desktop-test-${Math.random()}.sock`);
+    ? `\\\\.\\pipe\\jsx-tool-desktop-sock-test-${Date.now()}`
+    : path.join(os.tmpdir(), `jsx-tool-desktop-test-${Math.random()}.sock`);
 }
 
-describe('FilemapDesktopSocketService', () => {
+describe('JSXToolDesktopSocketService', () => {
   let socketPath: string;
-  let svc: FilemapDesktopSocketService;
+  let svc: JSXToolDesktopSocketService;
   let extServer: net.Server | null = null;
 
-  function createSvc(): FilemapDesktopSocketService {
+  function createSvc(): JSXToolDesktopSocketService {
     const receiver = new DesktopReceiverStub() as any;
     const logger = new Logger() as any;
     const desktopClientRegistryService = new DesktopClientRegistryService() as any;
-    const s = new FilemapDesktopSocketService(receiver, desktopClientRegistryService, logger);
+    const s = new JSXToolDesktopSocketService(receiver, desktopClientRegistryService, logger);
     (s as any).socketPath = socketPath;
     (s as any).init();
     return s;
@@ -116,7 +116,7 @@ describe('FilemapDesktopSocketService', () => {
     const receiver = new DesktopReceiverStub() as any;
     const logger = new Logger() as any;
     const desktopClientRegistryService = new DesktopClientRegistryService() as any;
-    svc = new FilemapDesktopSocketService(receiver, desktopClientRegistryService, logger);
+    svc = new JSXToolDesktopSocketService(receiver, desktopClientRegistryService, logger);
     (svc as any).socketPath  = socketPath;
     (svc as any).client      = null;
     (svc as any)._initialized = true;

@@ -23,6 +23,7 @@ import {
 import type { AvailableApis } from './desktop-client-registry.service';
 import { DesktopClientRegistryService } from './desktop-client-registry.service';
 import { DesktopEmitterService } from './desktop-emitter.service';
+import type { Server } from 'http';
 
 export interface RequestParamMap {
   read_file: ReadFileArgs
@@ -192,6 +193,16 @@ export class WebSocketService {
     @inject(DesktopEmitterService) private readonly desktopEmitterService: DesktopEmitterService
   ) { }
 
+  async startWithHttpServer (httpServer: Server): Promise<void> {
+    const { wsPort, wsHost, wsProtocol } = this.config.getConfig();
+    this.wss = new WebSocketServer({
+      server: httpServer,
+      path: '/jsx-tool-socket'
+    });
+
+    await this.startListeners(wsProtocol, wsHost, wsPort);
+  }
+
   async start (): Promise<void> {
     const { wsPort, wsHost, wsProtocol } = this.config.getConfig();
 
@@ -200,6 +211,10 @@ export class WebSocketService {
       this.wss.once('error', reject);
     });
 
+    await this.startListeners(wsProtocol, wsHost, wsPort);
+  }
+
+  private async startListeners (wsProtocol: 'ws' | 'wss', wsHost: string, wsPort: number) {
     this.keyManager.setListener((_keyData) => {
       this.broadcastKeyReady();
     });

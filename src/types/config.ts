@@ -1,4 +1,4 @@
-export interface FilemapConfig {
+export interface JSXToolConfig {
   serverPort: number
   serverHost: string
   serverProtocol: 'http' | 'https'
@@ -17,7 +17,7 @@ export interface FilemapConfig {
   injectAt: string
 }
 
-export const DEFAULT_CONFIG: FilemapConfig = {
+export const DEFAULT_CONFIG: JSXToolConfig = {
   serverPort: 3001,
   serverHost: 'localhost',
   serverProtocol: 'http',
