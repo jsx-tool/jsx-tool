@@ -1,5 +1,5 @@
 import { injectable, singleton, inject } from 'tsyringe';
-import { FilemapDesktopSocketService } from './filemap-desktop-socket.service';
+import { JSXToolDesktopSocketService } from './jsx-tool-desktop-socket.service';
 import type { WebSocketInboundEvent } from './websocket.service';
 import { ConfigService } from './config.service';
 import type { KeyData } from './key-manager.service';
@@ -27,7 +27,7 @@ type ForwardedMessageWithReferrer = ForwardedMessage & {
 export class DesktopEmitterService {
   constructor (
     @inject(ConfigService) private readonly configService: ConfigService,
-    @inject(FilemapDesktopSocketService) private readonly socketService: FilemapDesktopSocketService,
+    @inject(JSXToolDesktopSocketService) private readonly socketService: JSXToolDesktopSocketService,
     @inject(KeyManager) private readonly keyManager: KeyManager
   ) {
     this.keyManager.setListener((keyData: KeyData) => {

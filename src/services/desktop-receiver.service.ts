@@ -5,7 +5,7 @@ import type { AvailableApis } from './desktop-client-registry.service';
 import { DesktopClientRegistryService } from './desktop-client-registry.service';
 
 interface UpMessage {
-  event: 'filemap-client-up'
+  event: 'jsx-tool-client-up'
   utilized_apis: AvailableApis[]
 }
 
@@ -20,7 +20,7 @@ export class DesktopReceiverService {
   ) {}
 
   public handleMessage (msg: IncomingUnixMessage, socket: Socket): void {
-    if (msg?.event === 'filemap-client-up') {
+    if (msg?.event === 'jsx-tool-client-up') {
       this.desktopClientRegistryService.addApis(socket, msg.utilized_apis);
       const uuidData = this.keyManager.getCurrentUuid();
       if (uuidData) {

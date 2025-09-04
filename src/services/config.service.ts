@@ -1,32 +1,32 @@
 import { injectable, singleton } from 'tsyringe';
 import { resolve, join } from 'path';
 import { existsSync, readFileSync } from 'fs';
-import type { FilemapConfig } from '../types/config';
+import type { JSXToolConfig } from '../types/config';
 import { DEFAULT_CONFIG } from '../types/config';
 import pc from 'picocolors';
 
 @singleton()
 @injectable()
 export class ConfigService {
-  private config: FilemapConfig = { ...DEFAULT_CONFIG };
+  private config: JSXToolConfig = { ...DEFAULT_CONFIG };
 
   constructor () {
     this.loadFromEnvironment();
   }
 
   private loadFromEnvironment (): void {
-    if (process.env.FILEMAP_SERVER_PORT) this.config.serverPort = parseInt(process.env.FILEMAP_SERVER_PORT);
-    if (process.env.FILEMAP_SERVER_HOST) this.config.serverHost = process.env.FILEMAP_SERVER_HOST;
-    if (process.env.FILEMAP_PROXY_PORT) this.config.proxyPort = parseInt(process.env.FILEMAP_PROXY_PORT);
-    if (process.env.FILEMAP_PROXY_HOST) this.config.proxyHost = process.env.FILEMAP_PROXY_HOST;
-    if (process.env.FILEMAP_WS_PORT) this.config.wsPort = parseInt(process.env.FILEMAP_WS_PORT);
-    if (process.env.FILEMAP_WS_HOST) this.config.wsHost = process.env.FILEMAP_WS_HOST;
-    if (process.env.FILEMAP_NODE_MODULES_DIR) this.config.nodeModulesDir = process.env.FILEMAP_NODE_MODULES_DIR;
+    if (process.env.JSX_TOOL_SERVER_PORT) this.config.serverPort = parseInt(process.env.JSX_TOOL_SERVER_PORT);
+    if (process.env.JSX_TOOL_SERVER_HOST) this.config.serverHost = process.env.JSX_TOOL_SERVER_HOST;
+    if (process.env.JSX_TOOL_PROXY_PORT) this.config.proxyPort = parseInt(process.env.JSX_TOOL_PROXY_PORT);
+    if (process.env.JSX_TOOL_PROXY_HOST) this.config.proxyHost = process.env.JSX_TOOL_PROXY_HOST;
+    if (process.env.JSX_TOOL_WS_PORT) this.config.wsPort = parseInt(process.env.JSX_TOOL_WS_PORT);
+    if (process.env.JSX_TOOL_WS_HOST) this.config.wsHost = process.env.JSX_TOOL_WS_HOST;
+    if (process.env.JSX_TOOL_NODE_MODULES_DIR) this.config.nodeModulesDir = process.env.JSX_TOOL_NODE_MODULES_DIR;
   }
 
   async loadFromFile (directory?: string): Promise<void> {
     const dir = directory || this.config.workingDirectory;
-    const configPath = join(resolve(dir), 'filemap.json');
+    const configPath = join(resolve(dir), 'jsxtool.json');
 
     if (existsSync(configPath)) {
       try {
@@ -43,7 +43,11 @@ export class ConfigService {
     }
   }
 
-  setFromCliOptions (options: Partial<FilemapConfig>): void {
+  setFromCliOptions (options: Partial<JSXToolConfig>): void {
+    this.config = { ...this.config, ...options };
+  }
+
+  setFromViteOptions (options: Partial<JSXToolConfig>): void {
     this.config = { ...this.config, ...options };
   }
 
@@ -55,7 +59,7 @@ export class ConfigService {
     this.config.nodeModulesDir = resolve(path);
   }
 
-  getConfig (): Readonly<FilemapConfig> {
+  getConfig (): Readonly<JSXToolConfig> {
     return { ...this.config };
   }
 
