@@ -169,6 +169,6 @@ export class KeyFetcher {
   }
 
   private getBackendUrl (): string {
-    return 'https://filemap.ai';
+    return 'https://jsxtool.com';
   }
 }

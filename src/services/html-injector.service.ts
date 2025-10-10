@@ -25,7 +25,7 @@ export class HtmlInjector {
 
     return `
 <script>
-  window.__FM_DEV_SERVER_WS_URL__ = '${wsProtocol}://${wsHost}:${wsPort}';
+  window.__JSX_TOOL_DEV_SERVER_WS_URL__ = '${wsProtocol}://${wsHost}:${wsPort}';
 </script>
 `;
   }
