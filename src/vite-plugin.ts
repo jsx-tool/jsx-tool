@@ -30,6 +30,8 @@ export function jsxToolDevServer (
   const workingDirectoryValidationService = container.resolve(WorkingDirectoryValidationService);
   if (options.debug) {
     logger.setDebug(true);
+  } else {
+    logger.setSilence(true);
   }
   const app = container.resolve(ViteApplication);
 
