@@ -10,7 +10,7 @@ export class HtmlInjector {
   inject (html: string): string {
     const config = this.config.getConfig();
 
-    const isValidHtml = html.includes('<!DOCTYPE') && html.includes('<head');
+    const isValidHtml = html.includes('<html') && html.includes('<head');
     if (!isValidHtml) {
       return html;
     }

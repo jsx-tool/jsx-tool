@@ -9,6 +9,7 @@ import { ConfigService } from './config.service';
 export interface ProjectInfo {
   projectRoot: string
   files: string[]
+  additionalDirRoots: string[]
 }
 
 export interface FileInfo {
@@ -101,13 +102,17 @@ export class FileSystemApiService {
   }
 
   public startFileWatchers () {
-    this.watchDirs([
-      this.configService.getConfig().workingDirectory
-    ]);
+    this.watchDirs(
+      this.configService.getConfig().workingDirectory,
+      [
+      this.configService.getConfig().workingDirectory,
+    ],
+    this.configService.getConfig().additionalDirectories,
+  );
   }
 
-  private watchDirs (roots: string[]): void {
-    for (const root of this.dedupeRoots(roots)) {
+  private watchDirs (cwd: string, roots: string[], additionalDirectories: string[]): void {
+    for (const root of this.dedupeRoots(cwd, roots, additionalDirectories)) {
       const w = watch(root, { recursive: true }, () => {
         const existing = this.debounceTimers.get(root);
         if (existing) clearTimeout(existing);
@@ -126,9 +131,18 @@ export class FileSystemApiService {
 
   public projectInfo (): ProjectInfo {
     const config = this.configService.getConfig();
+    const additionalDirs = config.additionalDirectories ?? [];
+
+    const mainFiles = this.tree(config.workingDirectory).files ?? [];
+    const additionalFiles = additionalDirs.flatMap(dir => {
+      const resolvedDir = resolve(config.workingDirectory, dir);
+      return this.tree(resolvedDir).files ?? [];
+    });
+
     return {
       projectRoot: config.workingDirectory,
-      files: this.tree(config.workingDirectory).files ?? []
+      files: [...mainFiles, ...additionalFiles],
+      additionalDirRoots: additionalDirs.map((dir) => resolve(config.workingDirectory, dir))
     };
   }
 
@@ -140,6 +154,7 @@ export class FileSystemApiService {
     const config = this.configService.getConfig();
     const workingDir = config.workingDirectory;
     const nodeModulesDir = config.nodeModulesDir ? resolve(config.nodeModulesDir) : null;
+    const additionalDirs = (config.additionalDirectories ?? []).map(dir => resolve(workingDir, dir));
 
     const relativeToWorking = relative(workingDir, absolutePath);
     const isInWorkingDir = !relativeToWorking.startsWith('..') && !path.isAbsolute(relativeToWorking);
@@ -150,10 +165,19 @@ export class FileSystemApiService {
       isInNodeModulesDir = !relativeToNodeModules.startsWith('..') && !path.isAbsolute(relativeToNodeModules);
     }
 
-    if (!isInWorkingDir && !isInNodeModulesDir) {
+    let isInAdditionalDir = false;
+    for (const additionalDir of additionalDirs) {
+      const relativeToAdditional = relative(additionalDir, absolutePath);
+      if (!relativeToAdditional.startsWith('..') && !path.isAbsolute(relativeToAdditional)) {
+        isInAdditionalDir = true;
+        break;
+      }
+    }
+
+    if (!isInWorkingDir && !isInNodeModulesDir && !isInAdditionalDir) {
       return {
         safe: false,
-        reason: `Path must be within working directory: ${workingDir}`
+        reason: `Path must be within working directory or additional directories: ${workingDir}`
       };
     }
 
@@ -601,8 +625,8 @@ export class FileSystemApiService {
     }
   }
 
-  private dedupeRoots (rawRoots: string[]): string[] {
-    const roots = rawRoots
+  private dedupeRoots (cwd: string, rawRoots: string[], additionalDirectories: string[]): string[] {
+    const roots = [...rawRoots, ...additionalDirectories.map(addDir => resolve(cwd, addDir))]
       .map(r => resolve(r))
       .sort((a, b) => a.localeCompare(b));
 

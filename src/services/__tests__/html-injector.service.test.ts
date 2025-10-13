@@ -25,7 +25,7 @@ describe('HtmlInjector', () => {
 
     const result = htmlInjector.inject(html);
     
-    expect(result).toContain('window.__FM_DEV_SERVER_WS_URL__');
+    expect(result).toContain('window.__JSX_TOOL_DEV_SERVER_WS_URL__');
     expect(result).toContain('</script>\n</head>');
   });
 
@@ -35,8 +35,8 @@ describe('HtmlInjector', () => {
     expect(result).toBe(json);
   });
 
-  it('should not inject into HTML without DOCTYPE', () => {
-    const html = '<html><head></head><body></body></html>';
+  it('should not inject into HTML without html tag', () => {
+    const html = '<head></head><body></body>';
     const result = htmlInjector.inject(html);
     expect(result).toBe(html);
   });
