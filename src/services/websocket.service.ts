@@ -130,7 +130,7 @@ export interface EventPayloadMap {
     utilizedApis: AvailableApis[]
   }
   get_prompt_rules: {
-    rules: string|null
+    rules: string | null
   }
   get_version: {
     version: string
@@ -184,7 +184,7 @@ const signedEvents = new Set<keyof RequestParamMap>([
   'get_project_info',
   'get_unix_client_info',
   'get_prompt_rules',
-  'get_version',
+  'get_version'
 ]);
 
 @singleton()

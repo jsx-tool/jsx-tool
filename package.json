@@ -45,6 +45,7 @@
   "author": "Stanton Street Inc.",
   "license": "MIT",
   "dependencies": {
+    "@inquirer/prompts": "^7.9.0",
     "commander": "^14.0.0",
     "http-proxy": "^1.18.1",
     "picocolors": "^1.1.1",

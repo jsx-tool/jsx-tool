@@ -13,6 +13,7 @@ export interface PluginLike {
   name: string
   apply?: 'serve' | 'build' | ((config: any, env: any) => boolean)
   enforce?: 'pre' | 'post'
+  // eslint-disable-next-line @typescript-eslint/ban-types
   configureServer?: Function | undefined
   config?: (config: any, env: any) => any
   configResolved?: (config: any, env: any) => any
@@ -42,6 +43,7 @@ export function jsxToolDevServer (
 
     configureServer (server: any) {
       if (server?.httpServer && app.started && !app.serverStarted) {
+        // eslint-disable-next-line @typescript-eslint/no-unsafe-call
         server.httpServer?.once('listening', () => {
           app.startWithServer(server.httpServer as Server);
         });

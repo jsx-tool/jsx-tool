@@ -105,10 +105,10 @@ export class FileSystemApiService {
     this.watchDirs(
       this.configService.getConfig().workingDirectory,
       [
-      this.configService.getConfig().workingDirectory,
-    ],
-    (this.configService.getConfig()?.additionalDirectories ?? []),
-  );
+        this.configService.getConfig().workingDirectory
+      ],
+      (this.configService.getConfig()?.additionalDirectories ?? [])
+    );
   }
 
   private watchDirs (cwd: string, roots: string[], additionalDirectories: string[]): void {

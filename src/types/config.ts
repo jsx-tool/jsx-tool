@@ -2,7 +2,7 @@ export interface JSXToolConfig {
   serverPort: number
   serverHost: string
   serverProtocol: 'http' | 'https'
-  noProxy: boolean;
+  noProxy: boolean
 
   proxyPort: number
   proxyHost: string
@@ -18,8 +18,8 @@ export interface JSXToolConfig {
   injectAt: string
   additionalDirectories?: string[]
 
-  insecure?: boolean;
-  enableLogging?: boolean;
+  insecure?: boolean
+  enableLogging?: boolean
 }
 
 export const DEFAULT_CONFIG: JSXToolConfig = {
@@ -39,5 +39,5 @@ export const DEFAULT_CONFIG: JSXToolConfig = {
   workingDirectory: process.cwd(),
   nodeModulesDir: undefined,
   debug: false,
-  injectAt: '</head>',
+  injectAt: '</head>'
 };
