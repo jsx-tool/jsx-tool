@@ -130,4 +130,35 @@ export class WorkingDirectoryValidationService {
 
     return null;
   }
+
+  validateAdditionalDirectories (
+    cwd: string,
+    additionalDirectories: string[]
+  ): { isValid: boolean, validDirectories: string[], errors: string[] } {
+    const result = {
+      isValid: true,
+      validDirectories: [] as string[],
+      errors: [] as string[]
+    };
+
+    for (const dir of additionalDirectories) {
+      const resolvedDir = resolve(cwd, dir);
+
+      if (!existsSync(resolvedDir)) {
+        result.errors.push(`Additional directory does not exist: ${resolvedDir}`);
+        result.isValid = false;
+        continue;
+      }
+
+      if (!statSync(resolvedDir).isDirectory()) {
+        result.errors.push(`Additional path is not a directory: ${resolvedDir}`);
+        result.isValid = false;
+        continue;
+      }
+
+      result.validDirectories.push(resolvedDir);
+    }
+
+    return result;
+  }
 }

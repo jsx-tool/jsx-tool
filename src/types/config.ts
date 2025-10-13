@@ -15,10 +15,11 @@ export interface JSXToolConfig {
   nodeModulesDir?: string
   debug: boolean
   injectAt: string
+  additionalDirectories: string[]
 }
 
 export const DEFAULT_CONFIG: JSXToolConfig = {
-  serverPort: 3001,
+  serverPort: 4000,
   serverHost: 'localhost',
   serverProtocol: 'http',
 
@@ -26,12 +27,13 @@ export const DEFAULT_CONFIG: JSXToolConfig = {
   proxyHost: 'localhost',
   proxyProtocol: 'http',
 
-  wsPort: 3002,
+  wsPort: 2002,
   wsHost: 'localhost',
   wsProtocol: 'ws',
 
   workingDirectory: process.cwd(),
   nodeModulesDir: undefined,
   debug: false,
-  injectAt: '</head>'
+  injectAt: '</head>',
+  additionalDirectories: []
 };

@@ -21,10 +21,11 @@ export interface PluginLike {
 export interface JSXToolViteConfig {
   debug?: boolean
   nodeModulesDir?: string
+  additionalDirectories?: string[]
 }
 
 export function jsxToolDevServer (
-  options: JSXToolViteConfig = { debug: false, nodeModulesDir: undefined }
+  options: JSXToolViteConfig = { debug: false, nodeModulesDir: undefined, additionalDirectories: [] }
 ): PluginLike {
   const logger = container.resolve(Logger);
   const workingDirectoryValidationService = container.resolve(WorkingDirectoryValidationService);
@@ -51,7 +52,7 @@ export function jsxToolDevServer (
     config () {
       return {
         define: {
-          __FM_DEV_SERVER_WS_URL__: `(() => {
+          __JSX_TOOL_DEV_SERVER_WS_URL__: `(() => {
                     const base = import.meta.env.DEV 
                         ? \`\${location.protocol === 'https:' ? 'wss' : 'ws'}://\${location.host}\`
                         : '';
@@ -92,9 +93,16 @@ export function jsxToolDevServer (
       if (!validation.isValid) {
         logger.error('Invalid working directory:');
         validation.errors.forEach(err => { logger.error(`  • ${err}`); });
-        if (validation.errors.some(e => e.includes('not installed'))) {
-          logger.info('\nHint: In a monorepo, set nodeModulesDir to the workspace root node_modules');
-        }
+        return;
+      }
+
+      const additionalDirectoriesValidation = workingDirectoryValidationService.validateAdditionalDirectories(
+        root,
+        options.additionalDirectories ?? []
+      );
+      if (!additionalDirectoriesValidation.isValid) {
+        logger.error('Invalid additional directories:');
+        additionalDirectoriesValidation.errors.forEach(err => { logger.error(`  • ${err}`); });
         return;
       }
 
@@ -105,14 +113,15 @@ export function jsxToolDevServer (
         wsHost,
         wsProtocol: wsProtocol as 'ws' | 'wss',
         debug: options.debug,
-        nodeModulesDir: options.nodeModulesDir ?? root
+        nodeModulesDir: options.nodeModulesDir ?? root,
+        additionalDirectories: options?.additionalDirectories ?? []
       });
 
       app.setDidStart();
       const wsUrl = `${wsProtocol}://${wsHost}:${wsPort}`;
       return {
         define: {
-          __FM_DEV_SERVER_WS_URL__: JSON.stringify(`${wsUrl}/jsx-tool-socket`)
+          __JSX_TOOL_DEV_SERVER_WS_URL__: JSON.stringify(`${wsUrl}/jsx-tool-socket`)
         }
       };
     }

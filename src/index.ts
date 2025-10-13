@@ -25,6 +25,7 @@ async function main () {
     .option('--ws-port <port>', 'WebSocket server port', '3002')
     .option('--ws-host <host>', 'WebSocket server host', 'localhost')
     .option('--ws-protocol <protocol>', 'WebSocket protocol (ws|wss)', 'ws')
+    .option('--additional-directories <paths>', 'comma-separated list of additional directories (relative paths from project root) to watch', '')
     .option('-d, --debug', 'enable debug logging', false);
 
   program
@@ -32,6 +33,9 @@ async function main () {
       const config = container.resolve(ConfigService);
       const logger = container.resolve(Logger);
       const workingDirectoryValidationService = container.resolve(WorkingDirectoryValidationService);
+      const additionalDirectories = options.additionalDirectories
+        ? options.additionalDirectories.split(',').map((dir: string) => dir.trim()).filter((dir: string) => dir.length > 0)
+        : [];
 
       logger.setDebug(options.debug);
 
@@ -68,6 +72,12 @@ async function main () {
 
       config.setWorkingDirectory(options.from);
       config.setNodeModulesDirectory(nodeModulesDir || options.from);
+      const additionalDirectoriesValidation = workingDirectoryValidationService.validateAdditionalDirectories(options.from, additionalDirectories);
+      if (!additionalDirectoriesValidation.isValid) {
+        logger.error('Invalid additional directories:');
+        additionalDirectoriesValidation.errors.forEach(error => { logger.error(`  • ${error}`); });
+        process.exit(1);
+      }
       await config.loadFromFile(options.from);
 
       config.setFromCliOptions({
@@ -81,7 +91,8 @@ async function main () {
         wsHost: options.wsHost,
         wsProtocol: options.wsProtocol as 'ws' | 'wss',
         debug: options.debug,
-        nodeModulesDir
+        nodeModulesDir,
+        additionalDirectories,
       });
 
       const app = container.resolve(Application);

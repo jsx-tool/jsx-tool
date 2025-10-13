@@ -25,7 +25,7 @@ describe('HtmlInjector', () => {
 
     const result = htmlInjector.inject(html);
     
-    expect(result).toContain('window.__FM_DEV_SERVER_WS_URL__');
+    expect(result).toContain('window.__JSX_TOOL_DEV_SERVER_WS_URL__');
     expect(result).toContain('</script>\n</head>');
   });
 

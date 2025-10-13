@@ -22,6 +22,12 @@ export class ConfigService {
     if (process.env.JSX_TOOL_WS_PORT) this.config.wsPort = parseInt(process.env.JSX_TOOL_WS_PORT);
     if (process.env.JSX_TOOL_WS_HOST) this.config.wsHost = process.env.JSX_TOOL_WS_HOST;
     if (process.env.JSX_TOOL_NODE_MODULES_DIR) this.config.nodeModulesDir = process.env.JSX_TOOL_NODE_MODULES_DIR;
+    if (process.env.JSX_TOOL_ADDITIONAL_DIRECTORIES) {
+      this.config.additionalDirectories = process.env.JSX_TOOL_ADDITIONAL_DIRECTORIES
+        .split(',')
+        .map(dir => dir.trim())
+        .filter(dir => dir.length > 0);
+    }
   }
 
   async loadFromFile (directory?: string): Promise<void> {
