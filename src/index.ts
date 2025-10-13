@@ -6,6 +6,7 @@ import { ConfigService } from './services/config.service';
 import { Logger } from './services/logger.service';
 import { WorkingDirectoryValidationService } from './services/working-directory-validation.service';
 import pc from 'picocolors';
+import packageJson from '../package.json';
 
 async function main () {
   const program = new Command();
@@ -13,19 +14,22 @@ async function main () {
   program
     .name('jsx-tool')
     .description('Development proxy server')
-    .version('0.0.1')
+    .version(packageJson.version)
     .option('-f, --from <path>', 'working directory', process.cwd())
     .option('--node-modules-dir <path>', 'node_modules directory (defaults to working directory or auto-detect)')
-    .option('--server-port <port>', 'target server port', '3001')
+    .option('--additional-directories <paths>', 'comma-separated list of additional directories (relative paths from project root) to watch', '')
+    .option('--server-port <port>', 'target server port', '4000')
     .option('--server-host <host>', 'target server host', 'localhost')
     .option('--server-protocol <protocol>', 'target server protocol (http|https)', 'http')
     .option('--proxy-port <port>', 'proxy server port', '3000')
     .option('--proxy-host <host>', 'proxy server host', 'localhost')
     .option('--proxy-protocol <protocol>', 'proxy server protocol (http|https)', 'http')
-    .option('--ws-port <port>', 'WebSocket server port', '3002')
+    .option('--ws-port <port>', 'WebSocket server port', '12021')
     .option('--ws-host <host>', 'WebSocket server host', 'localhost')
     .option('--ws-protocol <protocol>', 'WebSocket protocol (ws|wss)', 'ws')
-    .option('--additional-directories <paths>', 'comma-separated list of additional directories (relative paths from project root) to watch', '')
+    .option('--no-proxy', 'disable proxy server', false)
+    .option('--insecure', 'runs dev server without signature check', false)
+    .option('--logging', 'enabled logging', false)
     .option('-d, --debug', 'enable debug logging', false);
 
   program
@@ -93,10 +97,18 @@ async function main () {
         debug: options.debug,
         nodeModulesDir,
         additionalDirectories,
+        insecure: options.insecure
       });
 
+      if (config.getConfig().enableLogging && !config.getConfig().debug) {
+        logger.setSilence(true);
+      } else {
+        logger.setSilence(false);
+      }
+
       const app = container.resolve(Application);
-      await app.start();
+      const noProxy = options.noProxy ?? config?.getConfig().noProxy ?? false;
+      await app.start(!noProxy);
     });
 
   await program.parseAsync(process.argv);

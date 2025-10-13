@@ -9,12 +9,14 @@ import pc from 'picocolors';
 @injectable()
 export class ConfigService {
   private config: JSXToolConfig = { ...DEFAULT_CONFIG };
+  private promptRulesPath?: string;
 
   constructor () {
     this.loadFromEnvironment();
   }
 
   private loadFromEnvironment (): void {
+    if (process.env.JSX_TOOL_NO_PROXY) this.config.noProxy = process.env.JSX_TOOL_NO_PROXY == "TRUE";
     if (process.env.JSX_TOOL_SERVER_PORT) this.config.serverPort = parseInt(process.env.JSX_TOOL_SERVER_PORT);
     if (process.env.JSX_TOOL_SERVER_HOST) this.config.serverHost = process.env.JSX_TOOL_SERVER_HOST;
     if (process.env.JSX_TOOL_PROXY_PORT) this.config.proxyPort = parseInt(process.env.JSX_TOOL_PROXY_PORT);
@@ -22,6 +24,7 @@ export class ConfigService {
     if (process.env.JSX_TOOL_WS_PORT) this.config.wsPort = parseInt(process.env.JSX_TOOL_WS_PORT);
     if (process.env.JSX_TOOL_WS_HOST) this.config.wsHost = process.env.JSX_TOOL_WS_HOST;
     if (process.env.JSX_TOOL_NODE_MODULES_DIR) this.config.nodeModulesDir = process.env.JSX_TOOL_NODE_MODULES_DIR;
+    if (process.env.JSX_TOOL_INSECURE) this.config.insecure = process.env.JSX_TOOL_INSECURE == "TRUE";
     if (process.env.JSX_TOOL_ADDITIONAL_DIRECTORIES) {
       this.config.additionalDirectories = process.env.JSX_TOOL_ADDITIONAL_DIRECTORIES
         .split(',')
@@ -32,7 +35,10 @@ export class ConfigService {
 
   async loadFromFile (directory?: string): Promise<void> {
     const dir = directory || this.config.workingDirectory;
-    const configPath = join(resolve(dir), 'jsxtool.json');
+    const configDirPath = join(resolve(dir), '.jsxtool');
+    const configPath = join(configDirPath, 'config.json');
+    const promptRules = join(configDirPath, 'rules.md');
+    this.promptRulesPath = promptRules;
 
     if (existsSync(configPath)) {
       try {
@@ -47,6 +53,19 @@ export class ConfigService {
         console.error(pc.red(`Error loading config from ${configPath}:`), error);
       }
     }
+  }
+
+  getPromptRules() {
+
+    if (this.promptRulesPath && existsSync(this.promptRulesPath)) {
+      try {
+        const fileContent = readFileSync(this.promptRulesPath, 'utf8');
+        return fileContent;
+      } catch (error) {
+        return null;
+      }
+    }
+    return null;
   }
 
   setFromCliOptions (options: Partial<JSXToolConfig>): void {

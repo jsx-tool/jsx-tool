@@ -107,7 +107,7 @@ export class FileSystemApiService {
       [
       this.configService.getConfig().workingDirectory,
     ],
-    this.configService.getConfig().additionalDirectories,
+    (this.configService.getConfig()?.additionalDirectories ?? []),
   );
   }
 
