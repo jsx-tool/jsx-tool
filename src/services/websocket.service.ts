@@ -24,6 +24,7 @@ import type { AvailableApis } from './desktop-client-registry.service';
 import { DesktopClientRegistryService } from './desktop-client-registry.service';
 import { DesktopEmitterService } from './desktop-emitter.service';
 import type { Server } from 'http';
+import packageJson from '../../package.json';
 
 export interface RequestParamMap {
   read_file: ReadFileArgs
@@ -68,6 +69,8 @@ export interface RequestParamMap {
   // event api
   get_project_info: unknown
   get_unix_client_info: unknown
+  get_prompt_rules: unknown
+  get_version: unknown
 }
 
 export interface EventPayloadMap {
@@ -126,6 +129,12 @@ export interface EventPayloadMap {
     unixConnectionCount: number
     utilizedApis: AvailableApis[]
   }
+  get_prompt_rules: {
+    rules: string|null
+  }
+  get_version: {
+    version: string
+  }
 }
 
 export interface WebSocketInboundEvent<K extends keyof RequestParamMap> {
@@ -173,7 +182,9 @@ const signedEvents = new Set<keyof RequestParamMap>([
   'open_element',
   'open_file',
   'get_project_info',
-  'get_unix_client_info'
+  'get_unix_client_info',
+  'get_prompt_rules',
+  'get_version',
 ]);
 
 @singleton()
@@ -285,6 +296,7 @@ export class WebSocketService {
   private handleMessage (data: string, socket: WebSocket): void {
     try {
       const message: WebSocketMessage = JSON.parse(data);
+      const isInsecure = this.config.getConfig()?.insecure ?? false;
 
       if (message.event_name === 'key_registered') {
         this.handleKeyRegistered(message);
@@ -304,7 +316,7 @@ export class WebSocketService {
         message_id: messageWithoutSignature.message_id
       };
 
-      if (!this.signatureVerifier.verify(signedPayload, signature)) {
+      if (!isInsecure && !this.signatureVerifier.verify(signedPayload, signature)) {
         this.logger.warn('Discarding message with invalid signature');
         return;
       }
@@ -475,6 +487,22 @@ export class WebSocketService {
             this.serializeResponseMessage(message, {
               unixConnectionCount: this.desktopClientRegistryService.count(),
               utilizedApis: this.desktopClientRegistryService.utilizedApis()
+            })
+          );
+          break;
+        }
+        case 'get_prompt_rules': {
+          socket.send(
+            this.serializeResponseMessage(message, {
+              rules: this.config.getPromptRules()
+            })
+          );
+          break;
+        }
+        case 'get_version': {
+          socket.send(
+            this.serializeResponseMessage(message, {
+              version: packageJson.version
             })
           );
           break;
