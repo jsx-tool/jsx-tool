@@ -1,5 +1,5 @@
 {
-  "name": "filemap-dev-server",
+  "name": "@jsx-tool/jsx-tool",
   "version": "0.0.1",
   "description": "Development server for JSX Tool",
   "main": "dist/index.js",
