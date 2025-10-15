@@ -1,0 +1,8 @@
+#!/usr/bin/env sh
+. "$(dirname -- "$0")/_/husky.sh"
+
+# Sync version from package.json to version.ts
+node scripts/sync-version.js
+
+# Stage the updated version file
+git add src/version.ts
