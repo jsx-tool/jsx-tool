@@ -11,7 +11,7 @@ const read    = fs.readFileSync as jest.Mock;
 const stat    = fs.statSync     as jest.Mock;
 
 describe('WorkingDirectoryValidationService', () => {
-  const WORK_DIR     = '/project/root';
+  const WORK_DIR     = resolve(process.cwd(), 'project', 'root');
   const PKG_PATH     = join(WORK_DIR, 'package.json');
   const REACT_FOLDER = join(WORK_DIR, 'node_modules', 'react');
 
@@ -25,7 +25,7 @@ describe('WorkingDirectoryValidationService', () => {
     const res = svc.validateWorkingDirectory(WORK_DIR);
 
     expect(res.isValid).toBe(false);
-    expect(res.errors).toContain(`Directory does not exist: ${resolve(WORK_DIR)}`);
+    expect(res.errors).toContain(`Directory does not exist: ${WORK_DIR}`);
   });
 
   it('fails when path is not a directory', () => {
@@ -35,7 +35,7 @@ describe('WorkingDirectoryValidationService', () => {
     const res = svc.validateWorkingDirectory(WORK_DIR);
 
     expect(res.isValid).toBe(false);
-    expect(res.errors).toContain(`Path is not a directory: ${resolve(WORK_DIR)}`);
+    expect(res.errors).toContain(`Path is not a directory: ${WORK_DIR}`);
   });
 
   it('fails when package.json is missing', () => {
@@ -45,7 +45,7 @@ describe('WorkingDirectoryValidationService', () => {
     const res = svc.validateWorkingDirectory(WORK_DIR);
 
     expect(res.hasPackageJson).toBe(false);
-    expect(res.errors).toContain(`No package.json found in: ${resolve(WORK_DIR)}`);
+    expect(res.errors).toContain(`No package.json found in: ${WORK_DIR}`);
   });
 
   it('fails when React is not listed in package.json', () => {
