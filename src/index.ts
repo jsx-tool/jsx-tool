@@ -130,7 +130,6 @@ async function main () {
       console.log(pc.cyan('\n🚀 JSX Tool Configuration Setup\n'));
       console.log(pc.gray(`Working directory: ${workingDir}\n`));
 
-      // Check if .jsxtool directory already exists
       if (existsSync(configDirPath)) {
         console.log(pc.yellow('⚠️  Configuration directory already exists at:'));
         console.log(pc.gray(`   ${configDirPath}`));
@@ -139,7 +138,6 @@ async function main () {
       }
 
       try {
-        // Ask user questions
         const serverPort = await input({
           message: 'What port does your application server run on?',
           default: '3000',
