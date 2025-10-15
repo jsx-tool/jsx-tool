@@ -24,7 +24,7 @@ import type { AvailableApis } from './desktop-client-registry.service';
 import { DesktopClientRegistryService } from './desktop-client-registry.service';
 import { DesktopEmitterService } from './desktop-emitter.service';
 import type { Server } from 'http';
-import packageJson from '../../package.json';
+import { VERSION } from '../version';
 
 export interface RequestParamMap {
   read_file: ReadFileArgs
@@ -502,7 +502,7 @@ export class WebSocketService {
         case 'get_version': {
           socket.send(
             this.serializeResponseMessage(message, {
-              version: packageJson.version
+              version: VERSION
             })
           );
           break;

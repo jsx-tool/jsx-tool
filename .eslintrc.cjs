@@ -37,5 +37,5 @@ module.exports = {
     '@typescript-eslint/no-floating-promises': 'off', // Add this line
     'semi': ['error', 'always'],
   },
-  ignorePatterns: ['dist/**/*', 'node_modules/**/*', 'bin/**/*', '*.test.ts', 'jest.config.js'],
+  ignorePatterns: ['dist/**/*', 'node_modules/**/*', 'bin/**/*', '*.test.ts', 'jest.config.js', 'scripts/**/*'],
 };
