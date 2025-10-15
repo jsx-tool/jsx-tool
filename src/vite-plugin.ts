@@ -9,16 +9,6 @@ export type DevServerLike = {
   httpServer?: any
 } & Record<string, any>;
 
-export interface PluginLike {
-  name: string
-  apply?: 'serve' | 'build' | ((config: any, env: any) => boolean)
-  enforce?: 'pre' | 'post'
-  // eslint-disable-next-line @typescript-eslint/ban-types
-  configureServer?: Function | undefined
-  config?: (config: any, env: any) => any
-  configResolved?: (config: any) => any
-}
-
 export interface JSXToolViteConfig {
   debug?: boolean
   nodeModulesDir?: string
@@ -27,7 +17,7 @@ export interface JSXToolViteConfig {
 
 export function jsxToolDevServer (
   options: JSXToolViteConfig = { debug: false, nodeModulesDir: undefined, additionalDirectories: [] }
-): PluginLike {
+) {
   const logger = container.resolve(Logger);
   const workingDirectoryValidationService = container.resolve(WorkingDirectoryValidationService);
   if (options.debug) {
@@ -39,7 +29,7 @@ export function jsxToolDevServer (
 
   return {
     name: 'jsx-tool-dev-server',
-    apply: 'serve',
+    apply: 'serve' as const,
 
     configureServer (server: any) {
       if (server?.httpServer && app.started && !app.serverStarted) {
@@ -51,7 +41,10 @@ export function jsxToolDevServer (
       }
     },
 
-    config () {
+    config (_config: any, env: any) {
+      if (env.command !== 'serve') {
+        return {};
+      }
       return {
         define: {
           __JSX_TOOL_DEV_SERVER_WS_URL__: `(() => {
@@ -120,12 +113,13 @@ export function jsxToolDevServer (
       });
 
       app.setDidStart();
+
+      // Modify the config object directly instead of returning
       const wsUrl = `${wsProtocol}://${wsHost}:${wsPort}`;
-      return {
-        define: {
-          __JSX_TOOL_DEV_SERVER_WS_URL__: JSON.stringify(`${wsUrl}/jsx-tool-socket`)
-        }
-      };
+      if (!userConfig.define) {
+        userConfig.define = {};
+      }
+      userConfig.define.__JSX_TOOL_DEV_SERVER_WS_URL__ = JSON.stringify(`${wsUrl}/jsx-tool-socket`);
     }
   };
 }
