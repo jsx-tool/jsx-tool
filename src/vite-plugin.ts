@@ -16,7 +16,7 @@ export interface PluginLike {
   // eslint-disable-next-line @typescript-eslint/ban-types
   configureServer?: Function | undefined
   config?: (config: any, env: any) => any
-  configResolved?: (config: any, env: any) => any
+  configResolved?: (config: any) => any
 }
 
 export interface JSXToolViteConfig {
@@ -64,7 +64,7 @@ export function jsxToolDevServer (
       };
     },
 
-    configResolved (userConfig: any, _env: any) {
+    configResolved (userConfig: any) {
       if (app.started) {
         return;
       }
