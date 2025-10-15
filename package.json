@@ -1,6 +1,6 @@
 {
   "name": "filemap-dev-server",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "description": "Development server for JSX Tool",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
