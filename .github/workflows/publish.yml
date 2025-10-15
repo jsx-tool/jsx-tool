@@ -1,11 +1,8 @@
 name: Publish to NPM
 
 on:
-  push:
-    tags:
-      - "v*"
-      - "*-beta*"
-      - "*-rc*"
+  release:
+    types: [published]
 
 jobs:
   publish:
@@ -25,6 +22,19 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Verify version matches tag
+        run: |
+          TAG_VERSION="${{ github.event.release.tag_name }}"
+          # Remove 'v' prefix if present
+          TAG_VERSION="${TAG_VERSION#v}"
+          PACKAGE_VERSION=$(node -p "require('./package.json').version")
+          
+          if [ "$TAG_VERSION" != "$PACKAGE_VERSION" ]; then
+            echo "Error: Tag version ($TAG_VERSION) does not match package.json version ($PACKAGE_VERSION)"
+            exit 1
+          fi
+          echo "✓ Version check passed: $PACKAGE_VERSION"
+
       - name: Run tests
         run: npm test
 
@@ -34,14 +44,15 @@ jobs:
       - name: Determine release type
         id: release-type
         run: |
-          if [[ $GITHUB_REF == *"-beta"* ]]; then
-            echo "type=beta" >> $GITHUB_OUTPUT
-            echo "tag=beta" >> $GITHUB_OUTPUT
-          elif [[ $GITHUB_REF == *"-rc"* ]]; then
-            echo "type=rc" >> $GITHUB_OUTPUT
-            echo "tag=rc" >> $GITHUB_OUTPUT
+          if [[ "${{ github.event.release.prerelease }}" == "true" ]]; then
+            if [[ "${{ github.event.release.tag_name }}" == *"-beta"* ]]; then
+              echo "tag=beta" >> $GITHUB_OUTPUT
+            elif [[ "${{ github.event.release.tag_name }}" == *"-rc"* ]]; then
+              echo "tag=rc" >> $GITHUB_OUTPUT
+            else
+              echo "tag=next" >> $GITHUB_OUTPUT
+            fi
           else
-            echo "type=stable" >> $GITHUB_OUTPUT
             echo "tag=latest" >> $GITHUB_OUTPUT
           fi
 
@@ -49,31 +60,3 @@ jobs:
         run: npm publish --tag ${{ steps.release-type.outputs.tag }} --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-
-      - name: Create GitHub Release
-        uses: actions/create-release@v1
-        if: steps.release-type.outputs.type == 'stable'
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          tag_name: ${{ github.ref }}
-          release_name: Release ${{ github.ref_name }}
-          body: |
-            ## What's Changed
-
-            This release includes:
-            - Bug fixes and improvements
-            - Enhanced CLI functionality
-            - Better error handling
-
-            ## Installation
-
-            ```bash
-            npm install -g @filemap/cli
-            ```
-
-            ## Breaking Changes
-
-            None in this release.
-          draft: false
-          prerelease: false
