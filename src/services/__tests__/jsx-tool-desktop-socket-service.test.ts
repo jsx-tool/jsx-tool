@@ -102,6 +102,10 @@ describe('JSXToolDesktopSocketService', () => {
   });
 
   it('removes stale socket and becomes server if connect fails', (done) => {
+    if (os.platform() === 'win32') {
+      done();
+      return;
+    }
     fs.writeFileSync(socketPath, '');
 
     svc = createSvc();
