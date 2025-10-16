@@ -206,9 +206,19 @@ export class WebSocketService {
 
   async startWithHttpServer (httpServer: Server): Promise<void> {
     const { wsPort, wsHost, wsProtocol } = this.config.getConfig();
+
     this.wss = new WebSocketServer({
-      server: httpServer,
-      path: '/jsx-tool-socket'
+      noServer: true
+    });
+
+    httpServer.on('upgrade', (request, socket, head) => {
+      const { pathname } = new URL(request.url!, `http://${request.headers.host}`);
+
+      if (pathname === '/jsx-tool-socket') {
+        this.wss!.handleUpgrade(request, socket, head, (ws) => {
+          this.wss!.emit('connection', ws, request);
+        });
+      }
     });
 
     await this.startListeners(wsProtocol, wsHost, wsPort);
