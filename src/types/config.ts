@@ -19,7 +19,7 @@ export interface JSXToolConfig {
   additionalDirectories?: string[]
 
   insecure?: boolean
-  enableLogging?: boolean
+  logging?: boolean
 }
 
 export const DEFAULT_CONFIG: JSXToolConfig = {
@@ -39,5 +39,6 @@ export const DEFAULT_CONFIG: JSXToolConfig = {
   workingDirectory: process.cwd(),
   nodeModulesDir: undefined,
   debug: false,
+  logging: false,
   injectAt: '</head>'
 };
