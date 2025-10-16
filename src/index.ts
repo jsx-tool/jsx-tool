@@ -36,35 +36,146 @@ async function main () {
     .option('--ws-protocol <protocol>', 'WebSocket protocol (ws|wss)', 'ws')
     .option('--no-proxy', 'disable proxy server', false)
     .option('--insecure', 'runs dev server without signature check', false)
-    .option('--logging', 'enabled logging', false)
+    .option('--logging', 'enable logging', false)
     .option('-d, --debug', 'enable debug logging', false)
-    .action(async (options) => {
+    .action(async (options, cmd: Command) => {
       const config = container.resolve(ConfigService);
       const logger = container.resolve(Logger);
       const workingDirectoryValidationService = container.resolve(WorkingDirectoryValidationService);
-      const additionalDirectories = options.additionalDirectories
-        // eslint-disable-next-line @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment
-        ? options.additionalDirectories.split(',').map((dir: string) => dir.trim()).filter((dir: string) => dir.length > 0)
-        : [];
 
-      logger.setDebug(options.debug);
+      const valueSource = (name: string) => cmd.getOptionValueSource(name as any);
+      const explicit = (name: string) => {
+        const src = valueSource(name);
+        return src === 'cli' || src === 'env';
+      };
+      const has = <T>(v: T | undefined | null): v is T => v !== undefined && v !== null;
+      const toInt = (v: unknown) =>
+        v !== undefined && v !== null ? Number.parseInt(String(v), 10) : undefined;
 
-      let nodeModulesDir = options.nodeModulesDir;
-      if (!nodeModulesDir) {
-        const detectedDir = workingDirectoryValidationService.findNodeModulesWithPackage(
-          options.from,
-          'react'
-        );
-        if (detectedDir) {
-          nodeModulesDir = detectedDir;
-          if (options.debug) {
-            logger.debug(`Auto-detected node_modules directory: ${nodeModulesDir}`);
-          }
-        }
+      const workingDir = options.from as string;
+
+      const autoDetectedNodeModules =
+        workingDirectoryValidationService.findNodeModulesWithPackage(workingDir, 'react') || undefined;
+
+      config.setWorkingDirectory(workingDir);
+      await config.loadFromFile(workingDir);
+      const current = config.getConfig();
+
+      const serverHost =
+        explicit('serverHost')
+          ? options.serverHost as string
+          : has(current.serverHost)
+            ? current.serverHost
+            : (options.serverHost as string);
+
+      const serverProtocol =
+        explicit('serverProtocol')
+          ? options.serverProtocol as 'http' | 'https'
+          : has(current.serverProtocol)
+            ? current.serverProtocol
+            : (options.serverProtocol as 'http' | 'https');
+
+      const proxyHost =
+        explicit('proxyHost')
+          ? options.proxyHost as string
+          : has(current.proxyHost)
+            ? current.proxyHost
+            : (options.proxyHost as string);
+
+      const proxyProtocol =
+        explicit('proxyProtocol')
+          ? options.proxyProtocol as 'http' | 'https'
+          : has(current.proxyProtocol)
+            ? current.proxyProtocol
+            : (options.proxyProtocol as 'http' | 'https');
+
+      const wsHost =
+        explicit('wsHost')
+          ? options.wsHost as string
+          : has(current.wsHost)
+            ? current.wsHost
+            : (options.wsHost as string);
+
+      const wsProtocol =
+        explicit('wsProtocol')
+          ? options.wsProtocol as 'ws' | 'wss'
+          : has(current.wsProtocol)
+            ? current.wsProtocol
+            : (options.wsProtocol as 'ws' | 'wss');
+
+      const serverPort =
+        explicit('serverPort')
+          ? (toInt(options.serverPort) ?? current.serverPort)
+          : has(current.serverPort)
+            ? current.serverPort
+            : (toInt(options.serverPort)!);
+
+      const proxyPort =
+        explicit('proxyPort')
+          ? (toInt(options.proxyPort) ?? current.proxyPort)
+          : has(current.proxyPort)
+            ? current.proxyPort
+            : (toInt(options.proxyPort)!);
+
+      const wsPort =
+        explicit('wsPort')
+          ? (toInt(options.wsPort) ?? current.wsPort)
+          : has(current.wsPort)
+            ? current.wsPort
+            : (toInt(options.wsPort)!);
+
+      const debug =
+        explicit('debug')
+          ? Boolean(options.debug)
+          : has(current.debug)
+            ? current.debug
+            : Boolean(options.debug);
+
+      const insecure =
+        explicit('insecure')
+          ? Boolean(options.insecure)
+          : has(current.insecure)
+            ? current.insecure
+            : Boolean(options.insecure);
+
+      const enableLogging =
+        explicit('logging')
+          ? Boolean(options.logging)
+          : has(current.enableLogging)
+            ? current.enableLogging
+            : Boolean(options.logging);
+
+      const noProxy =
+        explicit('noProxy')
+          ? Boolean(options.noProxy)
+          : has(current.noProxy)
+            ? current.noProxy
+            : Boolean(options.noProxy);
+
+      const nodeModulesDir =
+        explicit('nodeModulesDir')
+          ? (options.nodeModulesDir as string)
+          : has(current.nodeModulesDir)
+            ? current.nodeModulesDir
+            : (autoDetectedNodeModules ?? workingDir);
+
+      let additionalDirectories: string[];
+      if (explicit('additionalDirectories')) {
+        const raw = options.additionalDirectories as (string | undefined);
+        additionalDirectories = raw
+          ? raw.split(',').map((d) => d.trim()).filter((d) => d.length > 0)
+          : [];
+      } else if (Array.isArray(current.additionalDirectories)) {
+        additionalDirectories = current.additionalDirectories;
+      } else {
+        const raw = options.additionalDirectories as string;
+        additionalDirectories = raw
+          ? raw.split(',').map((d) => d.trim()).filter((d) => d.length > 0)
+          : [];
       }
 
       const validation = workingDirectoryValidationService.validateWorkingDirectory(
-        options.from,
+        workingDir,
         nodeModulesDir
       );
 
@@ -80,41 +191,52 @@ async function main () {
         process.exit(1);
       }
 
-      config.setWorkingDirectory(options.from);
-      config.setNodeModulesDirectory(nodeModulesDir || options.from);
-      const additionalDirectoriesValidation = workingDirectoryValidationService.validateAdditionalDirectories(options.from, additionalDirectories);
+      const additionalDirectoriesValidation =
+        workingDirectoryValidationService.validateAdditionalDirectories(
+          workingDir,
+          additionalDirectories
+        );
       if (!additionalDirectoriesValidation.isValid) {
         logger.error('Invalid additional directories:');
         additionalDirectoriesValidation.errors.forEach(error => { logger.error(`  • ${error}`); });
         process.exit(1);
       }
-      await config.loadFromFile(options.from);
+
+      config.setNodeModulesDirectory(nodeModulesDir);
 
       config.setFromCliOptions({
-        serverPort: parseInt(options.serverPort),
-        serverHost: options.serverHost,
-        serverProtocol: options.serverProtocol as 'http' | 'https',
-        proxyPort: parseInt(options.proxyPort),
-        proxyHost: options.proxyHost,
-        proxyProtocol: options.proxyProtocol as 'http' | 'https',
-        wsPort: parseInt(options.wsPort),
-        wsHost: options.wsHost,
-        wsProtocol: options.wsProtocol as 'ws' | 'wss',
-        debug: options.debug,
+        serverPort,
+        serverHost,
+        serverProtocol,
+
+        proxyPort,
+        proxyHost,
+        proxyProtocol,
+
+        wsPort,
+        wsHost,
+        wsProtocol,
+
+        debug,
+        insecure,
+        enableLogging,
+
         nodeModulesDir,
         additionalDirectories,
-        insecure: options.insecure
+
+        noProxy
       });
 
-      if (config.getConfig().enableLogging && !config.getConfig().debug) {
+      const finalCfg = config.getConfig();
+      logger.setDebug(finalCfg.debug);
+      if (finalCfg.enableLogging && !finalCfg.debug) {
         logger.setSilence(true);
       } else {
         logger.setSilence(false);
       }
 
       const app = container.resolve(Application);
-      const noProxy = options.noProxy ?? config?.getConfig().noProxy ?? false;
-      await app.start(!noProxy);
+      await app.start(!finalCfg.noProxy);
     });
 
   program
@@ -234,7 +356,6 @@ async function main () {
       }
     });
 
-  // eslint-disable-next-line @typescript-eslint/no-unsafe-call
   await program.parseAsync(process.argv);
 }
 
