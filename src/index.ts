@@ -138,11 +138,11 @@ async function main () {
             ? current.insecure
             : Boolean(options.insecure);
 
-      const enableLogging =
+      const logging =
         explicit('logging')
           ? Boolean(options.logging)
-          : has(current.enableLogging)
-            ? current.enableLogging
+          : has(current.logging)
+            ? current.logging
             : Boolean(options.logging);
 
       const noProxy =
@@ -219,7 +219,7 @@ async function main () {
 
         debug,
         insecure,
-        enableLogging,
+        logging,
 
         nodeModulesDir,
         additionalDirectories,
@@ -229,10 +229,10 @@ async function main () {
 
       const finalCfg = config.getConfig();
       logger.setDebug(finalCfg.debug);
-      if (finalCfg.enableLogging && !finalCfg.debug) {
-        logger.setSilence(true);
-      } else {
+      if (finalCfg.logging || finalCfg.debug) {
         logger.setSilence(false);
+      } else {
+        logger.setSilence(true);
       }
 
       const app = container.resolve(Application);
