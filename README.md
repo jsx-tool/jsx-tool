@@ -211,7 +211,7 @@ Create `.jsxtool/rules.md` to add project-specific prompting rules that will be 
 ## System Architecture
 
 <div align="center" style="background-color: #333; padding: 2rem; border-radius: 8px;">
-  <img src="./images/system-design.svg" alt="JSX Tool System Architecture" width="100%"/>
+  <img src="./images/system-design.svg" alt="JSX Tool System Architecture" width="100%" style="background-color: #333;"/>
 </div>
 
 ### Components
