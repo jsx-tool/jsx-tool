@@ -252,63 +252,25 @@ async function main () {
       console.log(pc.cyan('\n🚀 JSX Tool Configuration Setup\n'));
       console.log(pc.gray(`Working directory: ${workingDir}\n`));
 
-      if (existsSync(configDirPath)) {
-        console.log(pc.yellow('⚠️  Configuration directory already exists at:'));
-        console.log(pc.gray(`   ${configDirPath}`));
-        console.log(pc.red('\nAborting initialization to avoid overwriting existing configuration.'));
-        process.exit(1);
-      }
-
       try {
-        const serverPort = await input({
-          message: 'What port does your application server run on?',
-          default: '3000',
-          validate: (value) => {
-            const port = parseInt(value);
-            if (isNaN(port) || port < 1 || port > 65535) {
-              return 'Please enter a valid port number (1-65535)';
-            }
-            return true;
-          }
+        const isVite = await confirm({
+          message: 'Is this a Vite project?',
+          default: false
         });
 
-        const needsProxy = await confirm({
-          message: 'Do you need to run the proxy server? (recommended for non-Vite projects)',
-          default: true
-        });
-
-        let proxyPort = '4000';
-        if (needsProxy) {
-          proxyPort = await input({
-            message: 'What port should the proxy server run on?',
-            default: '4000',
-            validate: (value) => {
-              const port = parseInt(value);
-              if (isNaN(port) || port < 1 || port > 65535) {
-                return 'Please enter a valid port number (1-65535)';
-              }
-              if (port === parseInt(serverPort)) {
-                return 'Proxy port must be different from server port';
-              }
-              return true;
-            }
-          });
+        if (isVite && existsSync(rulesPath)) {
+          console.log(pc.yellow('⚠️  JSX Tool has already been initialized in this directory.'));
+          console.log(pc.gray(`   Found: ${rulesPath}`));
+          console.log(pc.red('\nAborting initialization to avoid overwriting existing configuration.'));
+          process.exit(1);
         }
 
-        const wsPort = await input({
-          message: 'What port should the WebSocket dev server run on?',
-          default: '12021',
-          validate: (value) => {
-            const port = parseInt(value);
-            if (isNaN(port) || port < 1 || port > 65535) {
-              return 'Please enter a valid port number (1-65535)';
-            }
-            if (port === parseInt(serverPort) || port === parseInt(proxyPort)) {
-              return 'WebSocket port must be different from other ports';
-            }
-            return true;
-          }
-        });
+        if (!isVite && existsSync(configPath)) {
+          console.log(pc.yellow('⚠️  JSX Tool has already been initialized in this directory.'));
+          console.log(pc.gray(`   Found: ${configPath}`));
+          console.log(pc.red('\nAborting initialization to avoid overwriting existing configuration.'));
+          process.exit(1);
+        }
 
         mkdirSync(configDirPath, { recursive: true });
         console.log(pc.green(`\n✓ Created directory: ${configDirPath}`));
@@ -316,35 +278,96 @@ async function main () {
         writeFileSync(rulesPath, '', 'utf8');
         console.log(pc.green(`✓ Created file: ${rulesPath}`));
 
-        const config = {
-          serverPort: parseInt(serverPort),
-          serverHost: 'localhost',
-          serverProtocol: 'http',
-          noProxy: !needsProxy,
-          proxyPort: parseInt(proxyPort),
-          proxyHost: 'localhost',
-          proxyProtocol: 'http',
-          wsPort: parseInt(wsPort),
-          wsHost: 'localhost',
-          wsProtocol: 'ws',
-          injectAt: '</head>'
-        };
+        if (isVite) {
+          console.log(pc.cyan('\n✨ Configuration created successfully!\n'));
+          console.log(pc.gray('Vite project detected - using plugin-based configuration.'));
+          console.log(pc.gray('No config.json needed for Vite projects.\n'));
 
-        writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf8');
-        console.log(pc.green(`✓ Created file: ${configPath}`));
+          console.log(pc.cyan('Next steps:'));
+          console.log(pc.gray('  • Edit rules.md to add custom prompt rules'));
+          console.log(pc.gray('  • Ensure @jsx-tool/vite-plugin is configured in vite.config.ts'));
+          console.log(pc.gray('  • Run "jsx-tool start" to start the dev server\n'));
+        } else {
+          const serverPort = await input({
+            message: 'What port does your application server run on?',
+            default: '3000',
+            validate: (value) => {
+              const port = parseInt(value);
+              if (isNaN(port) || port < 1 || port > 65535) {
+                return 'Please enter a valid port number (1-65535)';
+              }
+              return true;
+            }
+          });
 
-        console.log(pc.cyan('\n✨ Configuration created successfully!\n'));
-        console.log(pc.gray('Your configuration:'));
-        console.log(pc.gray(`  Server port:     ${config.serverPort}`));
-        console.log(pc.gray(`  Proxy enabled:   ${!config.noProxy}`));
-        if (!config.noProxy) {
-          console.log(pc.gray(`  Proxy port:      ${config.proxyPort}`));
+          const needsProxy = await confirm({
+            message: 'Do you need to run the proxy server?',
+            default: true
+          });
+
+          let proxyPort = '4000';
+          if (needsProxy) {
+            proxyPort = await input({
+              message: 'What port should the proxy server run on?',
+              default: '4000',
+              validate: (value) => {
+                const port = parseInt(value);
+                if (isNaN(port) || port < 1 || port > 65535) {
+                  return 'Please enter a valid port number (1-65535)';
+                }
+                if (port === parseInt(serverPort)) {
+                  return 'Proxy port must be different from server port';
+                }
+                return true;
+              }
+            });
+          }
+
+          const wsPort = await input({
+            message: 'What port should the WebSocket dev server run on?',
+            default: '12021',
+            validate: (value) => {
+              const port = parseInt(value);
+              if (isNaN(port) || port < 1 || port > 65535) {
+                return 'Please enter a valid port number (1-65535)';
+              }
+              if (port === parseInt(serverPort) || port === parseInt(proxyPort)) {
+                return 'WebSocket port must be different from other ports';
+              }
+              return true;
+            }
+          });
+
+          const config = {
+            serverPort: parseInt(serverPort),
+            serverHost: 'localhost',
+            serverProtocol: 'http',
+            noProxy: !needsProxy,
+            proxyPort: parseInt(proxyPort),
+            proxyHost: 'localhost',
+            proxyProtocol: 'http',
+            wsPort: parseInt(wsPort),
+            wsHost: 'localhost',
+            wsProtocol: 'ws',
+            injectAt: '</head>'
+          };
+
+          writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf8');
+          console.log(pc.green(`✓ Created file: ${configPath}`));
+
+          console.log(pc.cyan('\n✨ Configuration created successfully!\n'));
+          console.log(pc.gray('Your configuration:'));
+          console.log(pc.gray(`  Server port:     ${config.serverPort}`));
+          console.log(pc.gray(`  Proxy enabled:   ${!config.noProxy}`));
+          if (!config.noProxy) {
+            console.log(pc.gray(`  Proxy port:      ${config.proxyPort}`));
+          }
+          console.log(pc.gray(`  WebSocket port:  ${config.wsPort}\n`));
+
+          console.log(pc.cyan('Next steps:'));
+          console.log(pc.gray('  • Edit rules.md to add custom prompt rules'));
+          console.log(pc.gray('  • Run "jsx-tool start" to start the dev server\n'));
         }
-        console.log(pc.gray(`  WebSocket port:  ${config.wsPort}\n`));
-
-        console.log(pc.cyan('Next steps:'));
-        console.log(pc.gray('  • Edit rules.md to add custom prompt rules'));
-        console.log(pc.gray('  • Run "jsx-tool start" to start the dev server\n'));
 
         process.exit(0);
       } catch (error) {

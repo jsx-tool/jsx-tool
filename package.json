@@ -1,6 +1,6 @@
 {
   "name": "@jsx-tool/jsx-tool",
-  "version": "0.0.10",
+  "version": "0.0.11",
   "description": "Development server for JSX Tool",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -33,6 +33,7 @@
   },
   "keywords": [
     "jsx-tool",
+    "jsxtool",
     "jsx tool",
     "react jsx tool",
     "jsx tools",
