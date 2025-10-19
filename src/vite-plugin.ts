@@ -11,6 +11,7 @@ export type DevServerLike = {
 
 export interface JSXToolViteConfig {
   debug?: boolean
+  insecure?: boolean
   nodeModulesDir?: string
   additionalDirectories?: string[]
 }
@@ -109,7 +110,8 @@ export function jsxToolDevServer (
         wsProtocol: wsProtocol as 'ws' | 'wss',
         debug: options.debug,
         nodeModulesDir: options.nodeModulesDir ?? root,
-        additionalDirectories: options?.additionalDirectories ?? []
+        additionalDirectories: options?.additionalDirectories ?? [],
+        insecure: options?.insecure ?? false
       });
 
       app.setDidStart();

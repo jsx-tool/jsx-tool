@@ -309,7 +309,7 @@ export class WebSocketService {
       const isInsecure = this.config.getConfig()?.insecure ?? false;
 
       if (message.event_name === 'key_registered') {
-        this.handleKeyRegistered(message);
+        this.handleKeyRegistered(message, socket);
         return;
       }
 
@@ -540,12 +540,22 @@ export class WebSocketService {
     return JSON.stringify(msg);
   }
 
-  private handleKeyRegistered (message: WebSocketInitMessage): void {
+  private handleKeyRegistered (message: WebSocketInitMessage, socket: WebSocket): void {
     if (!message.uuid) {
       this.logger.error('Key registered event missing UUID');
       return;
     }
     this.logger.info(`Key registered (uuid: ${message.uuid})`);
+
+    const currentKey = this.keyManager.getCurrentKey();
+    if (currentKey?.uuid === message.uuid) {
+      this.logger.debug(`Already have key for UUID ${message.uuid}, sending key_ready`);
+      socket.send(JSON.stringify({
+        event_name: 'key_ready'
+      }));
+      return;
+    }
+
     this.keyFetcher.startFetching(message.uuid);
   }
 
@@ -599,7 +609,19 @@ export class WebSocketService {
   }
 
   getFetcherStatus (): { isActive: boolean, currentUuid?: string } {
-    const u = this.keyFetcher.getCurrentUuid();
-    return { isActive: u !== null, currentUuid: u || undefined };
+    const uuids = this.keyFetcher.getCurrentUuids();
+    const currentKey = this.keyManager.getCurrentKey();
+
+    if (currentKey && uuids.includes(currentKey.uuid)) {
+      return {
+        isActive: true,
+        currentUuid: currentKey.uuid
+      };
+    }
+
+    return {
+      isActive: uuids.length > 0,
+      currentUuid: uuids[0]
+    };
   }
 }
