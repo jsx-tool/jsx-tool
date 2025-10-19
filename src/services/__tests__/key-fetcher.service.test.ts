@@ -60,12 +60,12 @@ describe('KeyFetcher', () => {
             expect(mockLogger.info).toHaveBeenCalledWith(`Starting key fetch for UUID: ${uuid}`);
             expect(mockFetch).toHaveBeenCalledWith(
                 `https://jsxtool.com/api/fetch-key/${uuid}`,
-                {
+                expect.objectContaining({
                     method: 'GET',
                     headers: {
                         'Content-Type': 'application/json',
                     },
-                }
+                })
             );
             expect(mockKeyManager.setKey).toHaveBeenCalledWith({
                 publicKey: 'test-public-key',
@@ -75,31 +75,52 @@ describe('KeyFetcher', () => {
             expect(mockLogger.success).toHaveBeenCalledWith(`Successfully fetched and set key for UUID: ${uuid}`);
         });
 
-        it('should cancel previous fetch when starting new one', async () => {
+        it('should handle multiple concurrent fetches', async () => {
             const uuid1 = 'uuid-1';
             const uuid2 = 'uuid-2';
 
-            mockFetch.mockResolvedValueOnce({
-                ok: false,
-                status: 500,
-                json: jest.fn().mockResolvedValue({}),
-            } as any);
+            let resolve1: any, resolve2: any;
+            const promise1 = new Promise(r => resolve1 = r);
+            const promise2 = new Promise(r => resolve2 = r);
+            
+            mockFetch
+                .mockReturnValueOnce(promise1 as any)
+                .mockReturnValueOnce(promise2 as any);
 
-            await keyFetcher.startFetching(uuid1);
+            keyFetcher.startFetching(uuid1);
+            keyFetcher.startFetching(uuid2);
 
-            mockFetch.mockResolvedValueOnce({
-                ok: true,
-                status: 200,
-                json: jest.fn().mockResolvedValue({
-                    publicKey: 'key-2',
-                    expirationTime: new Date(Date.now() + 3600000).toISOString(),
-                }),
-            } as any);
+            await Promise.resolve();
 
-            await keyFetcher.startFetching(uuid2);
+            expect(keyFetcher.getCurrentUuids()).toEqual(expect.arrayContaining([uuid1, uuid2]));
+            expect(keyFetcher.getCurrentUuids()).toHaveLength(2);
 
-            expect(mockLogger.debug).toHaveBeenCalledWith(`Canceling fetch for old UUID: ${uuid1}`);
-            expect(keyFetcher.getCurrentUuid()).toBe(uuid2);
+            resolve1({ ok: false, status: 500, json: () => Promise.resolve({}) });
+            resolve2({ ok: false, status: 500, json: () => Promise.resolve({}) });
+            await Promise.resolve();
+        });
+
+        it('should skip duplicate UUID requests', async () => {
+            const uuid = 'duplicate-uuid';
+
+            let resolvePromise: any;
+            const pendingPromise = new Promise(r => resolvePromise = r);
+            mockFetch.mockReturnValueOnce(pendingPromise as any);
+
+            keyFetcher.startFetching(uuid);
+            
+            keyFetcher.startFetching(uuid);
+            
+            await Promise.resolve();
+
+            expect(mockLogger.debug).toHaveBeenCalledWith(
+                `Already fetching UUID: ${uuid}, skipping duplicate request`
+            );
+            expect(mockFetch).toHaveBeenCalledTimes(1);
+            expect(keyFetcher.getCurrentUuids()).toEqual([uuid]);
+
+            resolvePromise({ ok: false, status: 500, json: () => Promise.resolve({}) });
+            await Promise.resolve();
         });
     });
 
@@ -115,17 +136,25 @@ describe('KeyFetcher', () => {
 
             await keyFetcher.startFetching(uuid);
 
-            mockFetch.mockResolvedValueOnce({
+            expect(mockLogger.debug).toHaveBeenCalledWith(
+                `Scheduling retry for UUID ${uuid} in 5 seconds`
+            );
+
+            const successResponse = {
                 ok: true,
                 status: 200,
                 json: jest.fn().mockResolvedValue({
                     publicKey: 'retry-key',
                     expirationTime: new Date(Date.now() + 3600000).toISOString(),
                 }),
-            } as any);
+            };
+            mockFetch.mockResolvedValueOnce(successResponse as any);
 
             jest.advanceTimersByTime(5000);
-            await Promise.resolve();
+
+            for (let i = 0; i < 5; i++) {
+                await Promise.resolve();
+            }
 
             expect(mockFetch).toHaveBeenCalledTimes(2);
             expect(mockKeyManager.setKey).toHaveBeenCalled();
@@ -141,10 +170,12 @@ describe('KeyFetcher', () => {
             expect(mockLogger.error).toHaveBeenCalledWith(
                 `Failed to fetch key for UUID: ${uuid}: Network error`
             );
-            expect(mockLogger.debug).toHaveBeenCalledWith(`Scheduling retry in 5 seconds`);
+            expect(mockLogger.debug).toHaveBeenCalledWith(
+                `Scheduling retry for UUID ${uuid} in 5 seconds`
+            );
         });
 
-        it('should stop retrying when UUID changes', async () => {
+        it('should handle independent retries for multiple UUIDs', async () => {
             const uuid1 = 'uuid-1';
             const uuid2 = 'uuid-2';
 
@@ -161,10 +192,27 @@ describe('KeyFetcher', () => {
             } as any);
             await keyFetcher.startFetching(uuid2);
 
-            jest.advanceTimersByTime(5000);
-            await Promise.resolve();
+            expect(keyFetcher.getCurrentUuids()).toContain(uuid1);
+            expect(keyFetcher.getCurrentUuids()).not.toContain(uuid2);
 
-            expect(mockFetch).toHaveBeenCalledTimes(2);
+            mockFetch.mockResolvedValueOnce({
+                ok: true,
+                status: 200,
+                json: jest.fn().mockResolvedValue({
+                    publicKey: 'key-1',
+                    expirationTime: new Date(Date.now() + 3600000).toISOString(),
+                }),
+            } as any);
+            
+            jest.advanceTimersByTime(5000);
+            
+            // Flush promises
+            for (let i = 0; i < 5; i++) {
+                await Promise.resolve();
+            }
+
+            expect(mockFetch).toHaveBeenCalledTimes(3);
+            expect(keyFetcher.getCurrentUuids()).toEqual([]);
         });
     });
 
@@ -225,54 +273,58 @@ describe('KeyFetcher', () => {
             );
         });
 
-        it('should ignore responses for old UUIDs', async () => {
-            const uuid1 = 'uuid-1';
-            const uuid2 = 'uuid-2';
+        it('should handle aborted fetches', async () => {
+            const uuid = 'abort-uuid';
 
-            let resolveUuid1: any;
-            const uuid1Promise = new Promise((resolve) => {
-                resolveUuid1 = resolve;
-            });
+            const abortError = new Error('Aborted');
+            abortError.name = 'AbortError';
+            
+            mockFetch.mockRejectedValueOnce(abortError);
 
-            mockFetch.mockImplementationOnce(() => uuid1Promise as any);
+            await keyFetcher.startFetching(uuid);
+            
+            keyFetcher.cleanup();
 
-            const fetch1Promise = keyFetcher.startFetching(uuid1);
-
-            mockFetch.mockResolvedValueOnce({
-                ok: true,
-                status: 200,
-                json: jest.fn().mockResolvedValue({
-                    publicKey: 'key-2',
-                    expirationTime: new Date(Date.now() + 3600000).toISOString(),
-                }),
-            } as any);
-
-            await keyFetcher.startFetching(uuid2);
-
-            resolveUuid1({
-                ok: true,
-                status: 200,
-                json: jest.fn().mockResolvedValue({
-                    publicKey: 'key-1',
-                    expirationTime: new Date(Date.now() + 3600000).toISOString(),
-                }),
-            });
-
-            await fetch1Promise;
-
-            expect(mockKeyManager.setKey).toHaveBeenCalledTimes(1);
-            expect(mockKeyManager.setKey).toHaveBeenCalledWith(
-                expect.objectContaining({ uuid: uuid2 })
-            );
-            expect(mockLogger.debug).toHaveBeenCalledWith(
-                `Ignoring response for old UUID: ${uuid1}`
+            expect(mockLogger.debug).toHaveBeenCalledWith(`Fetch aborted for UUID: ${uuid}`);
+            expect(mockLogger.error).not.toHaveBeenCalledWith(
+                expect.stringContaining('Failed to fetch key')
             );
         });
     });
 
     describe('cleanup', () => {
-        it('should stop fetching and clear timers on cleanup', async () => {
-            const uuid = 'cleanup-uuid';
+        it('should stop all active fetches on cleanup', async () => {
+            const uuid1 = 'cleanup-uuid-1';
+            const uuid2 = 'cleanup-uuid-2';
+            
+            let resolve1: any, resolve2: any;
+            const promise1 = new Promise(r => resolve1 = r);
+            const promise2 = new Promise(r => resolve2 = r);
+            
+            mockFetch
+                .mockReturnValueOnce(promise1 as any)
+                .mockReturnValueOnce(promise2 as any);
+
+            keyFetcher.startFetching(uuid1);
+            keyFetcher.startFetching(uuid2);
+            
+            await Promise.resolve();
+            
+            expect(keyFetcher.getCurrentUuids()).toHaveLength(2);
+
+            keyFetcher.cleanup();
+
+            expect(keyFetcher.getCurrentUuids()).toEqual([]);
+            expect(mockLogger.debug).toHaveBeenCalledWith(`Stopped fetching UUID: ${uuid1}`);
+            expect(mockLogger.debug).toHaveBeenCalledWith(`Stopped fetching UUID: ${uuid2}`);
+            
+            resolve1({ ok: false, status: 500, json: () => Promise.resolve({}) });
+            resolve2({ ok: false, status: 500, json: () => Promise.resolve({}) });
+            await Promise.resolve();
+        });
+
+        it('should cancel scheduled retries on cleanup', async () => {
+            const uuid = 'cleanup-retry-uuid';
             
             mockFetch.mockResolvedValueOnce({
                 ok: false,
@@ -281,11 +333,11 @@ describe('KeyFetcher', () => {
             } as any);
 
             await keyFetcher.startFetching(uuid);
-            expect(keyFetcher.getCurrentUuid()).toBe(uuid);
+            expect(keyFetcher.getCurrentUuids()).toContain(uuid);
 
             keyFetcher.cleanup();
 
-            expect(keyFetcher.getCurrentUuid()).toBeNull();
+            expect(keyFetcher.getCurrentUuids()).toEqual([]);
 
             jest.advanceTimersByTime(5000);
             await Promise.resolve();
@@ -294,22 +346,51 @@ describe('KeyFetcher', () => {
         });
     });
 
-    describe('getCurrentUuid', () => {
-        it('should return null initially', () => {
-            expect(keyFetcher.getCurrentUuid()).toBeNull();
+    describe('getCurrentUuids', () => {
+        it('should return empty array initially', () => {
+            expect(keyFetcher.getCurrentUuids()).toEqual([]);
         });
 
-        it('should return current UUID when fetching', async () => {
-            const uuid = 'current-uuid';
+        it('should return all active UUIDs when fetching', async () => {
+            const uuid1 = 'current-uuid-1';
+            const uuid2 = 'current-uuid-2';
+            
+            let resolve1: any, resolve2: any;
+            const promise1 = new Promise(r => resolve1 = r);
+            const promise2 = new Promise(r => resolve2 = r);
+            
+            mockFetch
+                .mockReturnValueOnce(promise1 as any)
+                .mockReturnValueOnce(promise2 as any);
+
+            keyFetcher.startFetching(uuid1);
+            await Promise.resolve();
+            expect(keyFetcher.getCurrentUuids()).toEqual([uuid1]);
+            
+            keyFetcher.startFetching(uuid2);
+            await Promise.resolve();
+            expect(keyFetcher.getCurrentUuids()).toEqual([uuid1, uuid2]);
+            
+            resolve1({ ok: false, status: 500, json: () => Promise.resolve({}) });
+            resolve2({ ok: false, status: 500, json: () => Promise.resolve({}) });
+            await Promise.resolve();
+        });
+
+        it('should remove completed UUIDs from list', async () => {
+            const uuid = 'complete-uuid';
             
             mockFetch.mockResolvedValueOnce({
-                ok: false,
-                status: 500,
-                json: jest.fn().mockResolvedValue({}),
+                ok: true,
+                status: 200,
+                json: jest.fn().mockResolvedValue({
+                    publicKey: 'test-key',
+                    expirationTime: new Date(Date.now() + 3600000).toISOString(),
+                }),
             } as any);
 
             await keyFetcher.startFetching(uuid);
-            expect(keyFetcher.getCurrentUuid()).toBe(uuid);
+            
+            expect(keyFetcher.getCurrentUuids()).toEqual([]);
         });
     });
 });
