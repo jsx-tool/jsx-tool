@@ -23,12 +23,12 @@ export interface JSXToolConfig {
 }
 
 export const DEFAULT_CONFIG: JSXToolConfig = {
-  serverPort: 4000,
+  serverPort: 3000,
   serverHost: 'localhost',
   serverProtocol: 'http',
   noProxy: false,
 
-  proxyPort: 3000,
+  proxyPort: 4000,
   proxyHost: 'localhost',
   proxyProtocol: 'http',
 
