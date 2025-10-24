@@ -14,10 +14,11 @@ export interface JSXToolViteConfig {
   insecure?: boolean
   nodeModulesDir?: string
   additionalDirectories?: string[]
+  alwaysBypassMemoryLimits?: boolean
 }
 
 export function jsxToolDevServer (
-  options: JSXToolViteConfig = { debug: false, nodeModulesDir: undefined, additionalDirectories: [] }
+  options: JSXToolViteConfig = { debug: false, nodeModulesDir: undefined, additionalDirectories: [], alwaysBypassMemoryLimits: false }
 ) {
   const logger = container.resolve(Logger);
   const workingDirectoryValidationService = container.resolve(WorkingDirectoryValidationService);
@@ -27,6 +28,12 @@ export function jsxToolDevServer (
     logger.setSilence(true);
   }
   const app = container.resolve(ViteApplication);
+  const toolsConfig = app.getContainerConfig();
+  toolsConfig.isViteInstallation = true;
+
+  const decode = (s: string) => s.split('').map(c =>
+    String.fromCharCode(c.charCodeAt(0) - 3)
+  ).join('');
 
   return {
     name: 'jsx-tool-dev-server',
@@ -36,7 +43,7 @@ export function jsxToolDevServer (
       if (server?.httpServer && app.started && !app.serverStarted) {
         // eslint-disable-next-line @typescript-eslint/no-unsafe-call
         server.httpServer?.once('listening', () => {
-          app.startWithServer(server.httpServer as Server);
+          app.startWithServer(server.httpServer as Server, server);
         });
         return () => { app.stop(); };
       }
@@ -69,8 +76,6 @@ export function jsxToolDevServer (
       const wsHost = typeof server.host === 'string' ? server.host : 'localhost';
       const wsPort = server.port ?? 5173;
       const wsProtocol = server.https ? 'wss' : 'ws';
-
-      const toolsConfig = app.getContainerConfig();
       logger.setDebug(!!options.debug);
 
       if (!options.nodeModulesDir) {
@@ -115,13 +120,34 @@ export function jsxToolDevServer (
       });
 
       app.setDidStart();
-
-      // Modify the config object directly instead of returning
       const wsUrl = `${wsProtocol}://${wsHost}:${wsPort}`;
       if (!userConfig.define) {
         userConfig.define = {};
       }
       userConfig.define.__JSX_TOOL_DEV_SERVER_WS_URL__ = JSON.stringify(`${wsUrl}/jsx-tool-socket`);
+    },
+    transform (code: string, id: string) {
+      if (!options?.alwaysBypassMemoryLimits && !toolsConfig.shouldModifyNextObjectCounter) {
+        return null;
+      }
+      const regex = /\/node_modules\/\.vite\/deps\/(chunk-.*|react_jsx-dev-runtime\.js)/;
+
+      if (regex.test(id)) {
+        const searchPattern = decode('4h7#A#UhdfwVkduhgLqwhuqdov');
+        const replacePattern = decode('4h9#A#UhdfwVkduhgLqwhuqdov');
+
+        const searchRegex = new RegExp(searchPattern.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g');
+
+        if (searchRegex.test(code)) {
+          const modifiedCode = code.replace(searchRegex, replacePattern);
+          return {
+            code: modifiedCode,
+            map: null
+          };
+        }
+      }
+
+      return null;
     }
   };
 }
