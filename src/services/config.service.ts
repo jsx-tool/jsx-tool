@@ -10,6 +10,7 @@ import pc from 'picocolors';
 export class ConfigService {
   private config: JSXToolConfig = { ...DEFAULT_CONFIG };
   private promptRulesPath?: string;
+  public shouldModifyNextObjectCounter: boolean = false;
 
   constructor () {
     this.loadFromEnvironment();
@@ -66,6 +67,10 @@ export class ConfigService {
       }
     }
     return null;
+  }
+
+  setShouldModifyNextObjectCounter (shouldModifyNextObjectCounter: boolean) {
+    this.shouldModifyNextObjectCounter = shouldModifyNextObjectCounter;
   }
 
   setFromCliOptions (options: Partial<JSXToolConfig>): void {

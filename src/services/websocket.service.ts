@@ -71,6 +71,10 @@ export interface RequestParamMap {
   get_unix_client_info: unknown
   get_prompt_rules: unknown
   get_version: unknown
+  get_proxy_info: unknown
+  set_should_modify_next_object_counter: {
+    shouldModifyNextObjectCounter: boolean
+  }
 }
 
 export interface EventPayloadMap {
@@ -135,6 +139,13 @@ export interface EventPayloadMap {
   get_version: {
     version: string
   }
+  get_proxy_info: null | {
+    serverUrl: string
+    proxyUrl: string
+  }
+  set_should_modify_next_object_counter: {
+    shouldModifyNextObjectCounter: boolean
+  }
 }
 
 export interface WebSocketInboundEvent<K extends keyof RequestParamMap> {
@@ -184,7 +195,9 @@ const signedEvents = new Set<keyof RequestParamMap>([
   'get_project_info',
   'get_unix_client_info',
   'get_prompt_rules',
-  'get_version'
+  'get_version',
+  'get_proxy_info',
+  'set_should_modify_next_object_counter'
 ]);
 
 @singleton()
@@ -501,6 +514,7 @@ export class WebSocketService {
           );
           break;
         }
+
         case 'get_prompt_rules': {
           socket.send(
             this.serializeResponseMessage(message, {
@@ -509,10 +523,35 @@ export class WebSocketService {
           );
           break;
         }
+
         case 'get_version': {
           socket.send(
             this.serializeResponseMessage(message, {
               version: VERSION
+            })
+          );
+          break;
+        }
+        case 'get_proxy_info': {
+          const { noProxy, proxyHost, proxyPort, proxyProtocol, serverHost, serverPort, serverProtocol } = this.config.getConfig();
+          if (noProxy) {
+            socket.send(
+              this.serializeResponseMessage(message, null)
+            );
+          }
+          socket.send(
+            this.serializeResponseMessage(message, {
+              serverUrl: `${serverProtocol}://${serverHost}:${serverPort}`,
+              proxyUrl: `${proxyProtocol}://${proxyHost}:${proxyPort}`
+            })
+          );
+          break;
+        }
+        case 'set_should_modify_next_object_counter': {
+          this.config.setShouldModifyNextObjectCounter(message.params.shouldModifyNextObjectCounter);
+          socket.send(
+            this.serializeResponseMessage(message, {
+              shouldModifyNextObjectCounter: this.config.shouldModifyNextObjectCounter
             })
           );
           break;

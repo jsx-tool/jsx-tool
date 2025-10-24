@@ -81,17 +81,77 @@ export class ProxyService {
 
   private handleProxyResponse (
     proxyRes: http.IncomingMessage,
-    _req: http.IncomingMessage,
+    req: http.IncomingMessage,
     res: ServerResponse
   ): void {
     const contentType = proxyRes.headers['content-type'] || '';
 
-    if (contentType.includes('text/html')) {
+    if (this.shouldModifyNextChunk(req, contentType)) {
+      this.modifyNextChunk(proxyRes, req, res);
+    } else if (contentType.includes('text/html')) {
       this.handleHtmlResponse(proxyRes, res);
     } else {
       res.writeHead(proxyRes.statusCode || 200, proxyRes.headers);
       proxyRes.pipe(res);
     }
+  }
+
+  private shouldModifyNextChunk (req: http.IncomingMessage, contentType: string): boolean {
+    const config = this.config;
+    if (!config.shouldModifyNextObjectCounter) {
+      return false;
+    }
+    const isScript = contentType.includes('javascript') ||
+                     contentType.includes('application/x-javascript') ||
+                     contentType.includes('text/javascript');
+
+    if (!isScript) return false;
+
+    return req.url?.includes('/_next/static/chunks/') || false;
+  }
+
+  private modifyNextChunk (
+    proxyRes: http.IncomingMessage,
+    req: http.IncomingMessage,
+    res: ServerResponse
+  ): void {
+    this.logger.info(`Modifying Next.js chunk: ${req.url}`);
+
+    const encoding = proxyRes.headers['content-encoding'];
+    let body = '';
+
+    let stream: Stream = proxyRes;
+    if (encoding === 'gzip') stream = proxyRes.pipe(zlib.createGunzip());
+    else if (encoding === 'deflate') stream = proxyRes.pipe(zlib.createInflate());
+    else if (encoding === 'br') stream = proxyRes.pipe(zlib.createBrotliDecompress());
+
+    stream.on('data', (chunk: Buffer) => (body += chunk.toString()));
+    stream.on('end', () => {
+      try {
+        const modifiedBody = body.replace(
+          /1e4 > ReactSharedInternals/g,
+          '1e6 > ReactSharedInternals'
+        );
+
+        const headers = { ...proxyRes.headers };
+        delete headers['content-encoding'];
+        delete headers['content-length'];
+
+        res.writeHead(proxyRes.statusCode ?? 200, headers);
+        res.end(modifiedBody);
+
+        this.logger.success('Next.js chunk modified successfully');
+      } catch (err) {
+        this.logger.error(`Modification error: ${(err as Error).message}`);
+        res.writeHead(500, { 'Content-Type': 'text/plain' });
+        res.end('Modification error occurred');
+      }
+    });
+    stream.on('error', (err: Error) => {
+      this.logger.error(`Decompression error: ${err.message}`);
+      res.writeHead(500, { 'Content-Type': 'text/plain' });
+      res.end('Decompression error occurred');
+    });
   }
 
   private handleHtmlResponse (
