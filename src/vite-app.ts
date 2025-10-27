@@ -17,7 +17,15 @@ export class ViteApplication {
   public started = false;
   public serverStarted = false;
 
-  async startWithServer (server: Server): Promise<void> {
+  async startWithServer (server: Server, viteServer: Server & {
+    moduleGraph: {
+      invalidateModule: (mod: unknown) => void
+      urlToModuleMap: {
+        values: () => unknown[]
+      }
+    }
+    ws: { send: (o: object) => void }
+  }): Promise<void> {
     this.serverStarted = true;
     const { valid, errors } = this.config.validate();
     if (!valid) throw new Error(`Invalid config:\n• ${errors.join('\n• ')}`);
@@ -27,6 +35,16 @@ export class ViteApplication {
     this.logger.success('JSX Tool dev-server started ✅');
 
     this.logKeyStatus();
+    this.config.fullReload = () => {
+      const modules = Array.from(viteServer.moduleGraph.urlToModuleMap.values());
+      modules.forEach((mod) => {
+        viteServer.moduleGraph.invalidateModule(mod);
+      });
+      viteServer.ws.send({
+        type: 'full-reload',
+        path: '*'
+      });
+    };
   }
 
   async stop (): Promise<void> {
