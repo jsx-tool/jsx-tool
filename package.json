@@ -1,7 +1,15 @@
 {
   "name": "@jsx-tool/jsx-tool",
-  "version": "0.0.16",
+  "version": "0.0.17",
   "description": "Development server for JSX Tool",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jsx-tool/jsx-tool.git"
+  },
+  "bugs": {
+    "url": "https://github.com/jsx-tool/jsx-tool/issues"
+  },
+  "homepage": "https://github.com/jsx-tool/jsx-tool#readme",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "bin": {

@@ -109,6 +109,7 @@ export function jsxToolDevServer (
 
       toolsConfig.setWorkingDirectory(root);
       toolsConfig.setNodeModulesDirectory(options.nodeModulesDir ?? root);
+      toolsConfig.loadFromFile(root);
       toolsConfig.setFromViteOptions({
         wsPort,
         wsHost,
