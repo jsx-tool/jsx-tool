@@ -15,7 +15,9 @@ import type {
   RmResult,
   TreeResult,
   WriteFileArgs,
-  WriteFileResult
+  WriteFileResult,
+  GitStatusResult,
+  FileChangeEvent
 } from './file-system-api.service';
 import {
   FileSystemApiService
@@ -23,8 +25,13 @@ import {
 import type { AvailableApis } from './desktop-client-registry.service';
 import { DesktopClientRegistryService } from './desktop-client-registry.service';
 import { DesktopEmitterService } from './desktop-emitter.service';
-import type { Server } from 'http';
+import { type Server } from 'http';
 import { VERSION } from '../version';
+import type { LspJsonRpcRequest, LspJsonRpcResponse } from './lsp.service';
+import { LspService } from './lsp.service';
+import type { DiagnosticCheckResult, OpenFileInfo } from './diagnostic-checker.service';
+import { DiagnosticCheckerService } from './diagnostic-checker.service';
+import { type RipGrepSearchOptions, type RipGrepSearchResult, RipGrepService } from './ripgrep.service';
 
 export interface RequestParamMap {
   read_file: ReadFileArgs
@@ -74,6 +81,28 @@ export interface RequestParamMap {
   get_proxy_info: unknown
   set_should_modify_next_object_counter: {
     shouldModifyNextObjectCounter: boolean
+  }
+  // lsp
+  lsp_request: LspJsonRpcRequest
+
+  open_files: {
+    files: OpenFileInfo[]
+  }
+
+  check_diagnostics: {
+    files: Array<string | {
+      filePath: string
+      buffer?: string
+    }>
+  }
+
+  // git
+  get_git_status: GitStatusResult
+
+  // ripgrep
+  search: {
+    pattern: string
+    options?: RipGrepSearchOptions
   }
 }
 
@@ -147,6 +176,15 @@ export interface EventPayloadMap {
   set_should_modify_next_object_counter: {
     shouldModifyNextObjectCounter: boolean
   }
+  lsp_request: LspJsonRpcResponse | null
+
+  open_files: unknown
+
+  check_diagnostics: DiagnosticCheckResult
+
+  get_git_status: unknown
+
+  search: RipGrepSearchResult
 }
 
 export interface WebSocketInboundEvent<K extends keyof RequestParamMap> {
@@ -198,7 +236,12 @@ const signedEvents = new Set<keyof RequestParamMap>([
   'get_prompt_rules',
   'get_version',
   'get_proxy_info',
-  'set_should_modify_next_object_counter'
+  'set_should_modify_next_object_counter',
+  'lsp_request',
+  'open_files',
+  'check_diagnostics',
+  'get_git_status',
+  'search'
 ]);
 
 @singleton()
@@ -215,7 +258,10 @@ export class WebSocketService {
     @inject(DesktopClientRegistryService) private readonly desktopClientRegistryService: DesktopClientRegistryService,
     @inject(SignatureVerifierService) private readonly signatureVerifier: SignatureVerifierService,
     @inject(FileSystemApiService) private readonly fileSystemApi: FileSystemApiService,
-    @inject(DesktopEmitterService) private readonly desktopEmitterService: DesktopEmitterService
+    @inject(DesktopEmitterService) private readonly desktopEmitterService: DesktopEmitterService,
+    @inject(LspService) private readonly lspService: LspService,
+    @inject(DiagnosticCheckerService) private readonly diagnosticChecker: DiagnosticCheckerService,
+    @inject(RipGrepService) private readonly ripgrepService: RipGrepService
   ) { }
 
   async startWithHttpServer (httpServer: Server): Promise<void> {
@@ -258,8 +304,15 @@ export class WebSocketService {
       this.broadcastUnixConnectionsChanged();
     });
 
-    this.fileSystemApi.setListener(() => {
-      this.broadcastProjectInfoChanged();
+    this.fileSystemApi.setListener((fileChanges: FileChangeEvent[]) => {
+      this.broadcastProjectInfoChanged(fileChanges);
+    });
+
+    this.lspService.listen((lspResponse: LspJsonRpcResponse) => {
+      this.broadcast(JSON.stringify({
+        event_name: 'lsp_update',
+        lsp_response: lspResponse
+      }));
     });
 
     if (!this.wss) return;
@@ -292,11 +345,14 @@ export class WebSocketService {
     this.logger.success(
       `WebSocket server listening on ${wsProtocol}://${wsHost}:${wsPort}`
     );
+
+    this.lspService.initialize();
   }
 
   async stop (): Promise<void> {
     if (!this.wss) return;
 
+    this.lspService.cleanup();
     this.keyFetcher.cleanup();
     this.keyManager.cleanup();
 
@@ -317,7 +373,7 @@ export class WebSocketService {
     this.logger.info('WebSocket server stopped');
   }
 
-  private handleMessage (data: string, socket: WebSocket): void {
+  private async handleMessage (data: string, socket: WebSocket): Promise<void> {
     try {
       const message: WebSocketMessage = JSON.parse(data);
       const isInsecure = this.config.getConfig()?.insecure ?? false;
@@ -533,6 +589,7 @@ export class WebSocketService {
           );
           break;
         }
+
         case 'get_proxy_info': {
           const { noProxy, proxyHost, proxyPort, proxyProtocol, serverHost, serverPort, serverProtocol } = this.config.getConfig();
           if (noProxy && !this.config.isViteInstallation) {
@@ -549,6 +606,7 @@ export class WebSocketService {
           );
           break;
         }
+
         case 'set_should_modify_next_object_counter': {
           this.config.setShouldModifyNextObjectCounter(message.params.shouldModifyNextObjectCounter);
           if (this.config.isViteInstallation) {
@@ -558,6 +616,49 @@ export class WebSocketService {
             this.serializeResponseMessage(message, {
               shouldModifyNextObjectCounter: this.config.shouldModifyNextObjectCounter
             })
+          );
+          break;
+        }
+
+        case 'lsp_request': {
+          const response = await this.lspService.handleJsonRpc(message.params);
+          socket.send(
+            this.serializeResponseMessage(message, response)
+          );
+          break;
+        }
+
+        case 'open_files': {
+          this.diagnosticChecker.initializeOpenFiles(message.params.files);
+          socket.send(
+            this.serializeResponseMessage(message, {})
+          );
+          break;
+        }
+
+        case 'check_diagnostics': {
+          const result = await this.diagnosticChecker.checkFiles(message.params.files);
+          socket.send(
+            this.serializeResponseMessage(message, result)
+          );
+          break;
+        }
+
+        case 'get_git_status': {
+          const result = this.fileSystemApi.gitStatus();
+          socket.send(
+            this.serializeResponseMessage(message, result)
+          );
+          break;
+        }
+
+        case 'search': {
+          const result = await this.ripgrepService.search(
+            message.params.pattern,
+            message.params.options
+          );
+          socket.send(
+            this.serializeResponseMessage(message, result)
           );
           break;
         }
@@ -625,13 +726,14 @@ export class WebSocketService {
     });
   }
 
-  public broadcastProjectInfoChanged () {
-    this.broadcast(this.getProjectInfo());
+  public broadcastProjectInfoChanged (fileChanges: FileChangeEvent[]) {
+    this.broadcast(this.getProjectInfo(fileChanges));
   }
 
-  private getProjectInfo () {
+  private getProjectInfo (fileChanges: FileChangeEvent[]) {
     return JSON.stringify({
-      event_name: 'updated_project_info'
+      event_name: 'updated_project_info',
+      file_changes: fileChanges ?? []
     });
   }
 
