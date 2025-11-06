@@ -28,10 +28,9 @@ import { DesktopEmitterService } from './desktop-emitter.service';
 import { type Server } from 'http';
 import { VERSION } from '../version';
 import type { LspJsonRpcRequest, LspJsonRpcResponse } from './lsp.service';
-import { LspService } from './lsp.service';
 import type { DiagnosticCheckResult, OpenFileInfo } from './diagnostic-checker.service';
-import { DiagnosticCheckerService } from './diagnostic-checker.service';
 import { type RipGrepSearchOptions, type RipGrepSearchResult, RipGrepService } from './ripgrep.service';
+import { LspWorkerManagerService } from './lsp-worker-manager.service';
 
 export interface RequestParamMap {
   read_file: ReadFileArgs
@@ -259,8 +258,7 @@ export class WebSocketService {
     @inject(SignatureVerifierService) private readonly signatureVerifier: SignatureVerifierService,
     @inject(FileSystemApiService) private readonly fileSystemApi: FileSystemApiService,
     @inject(DesktopEmitterService) private readonly desktopEmitterService: DesktopEmitterService,
-    @inject(LspService) private readonly lspService: LspService,
-    @inject(DiagnosticCheckerService) private readonly diagnosticChecker: DiagnosticCheckerService,
+    @inject(LspWorkerManagerService) private readonly lspWorkerManager: LspWorkerManagerService,
     @inject(RipGrepService) private readonly ripgrepService: RipGrepService
   ) { }
 
@@ -308,7 +306,7 @@ export class WebSocketService {
       this.broadcastProjectInfoChanged(fileChanges);
     });
 
-    this.lspService.listen((lspResponse: LspJsonRpcResponse) => {
+    this.lspWorkerManager.listen((lspResponse: LspJsonRpcResponse) => {
       this.broadcast(JSON.stringify({
         event_name: 'lsp_update',
         lsp_response: lspResponse
@@ -346,15 +344,19 @@ export class WebSocketService {
       `WebSocket server listening on ${wsProtocol}://${wsHost}:${wsPort}`
     );
 
-    this.lspService.initialize();
+    if (process.env.NODE_ENV !== 'test') {
+      await this.lspWorkerManager.start();
+      this.lspWorkerManager.startFileWatchers();
+    }
   }
 
   async stop (): Promise<void> {
     if (!this.wss) return;
 
-    this.lspService.cleanup();
     this.keyFetcher.cleanup();
     this.keyManager.cleanup();
+
+    await this.lspWorkerManager.stop();
 
     await Promise.all(
       [...this.clients].map(
@@ -621,15 +623,13 @@ export class WebSocketService {
         }
 
         case 'lsp_request': {
-          const response = await this.lspService.handleJsonRpc(message.params);
-          socket.send(
-            this.serializeResponseMessage(message, response)
-          );
+          const response = await this.lspWorkerManager.handleJsonRpc(message.params);
+          socket.send(this.serializeResponseMessage(message, response));
           break;
         }
 
         case 'open_files': {
-          this.diagnosticChecker.initializeOpenFiles(message.params.files);
+          await this.lspWorkerManager.initializeOpenFiles(message.params.files);
           socket.send(
             this.serializeResponseMessage(message, {})
           );
@@ -637,7 +637,7 @@ export class WebSocketService {
         }
 
         case 'check_diagnostics': {
-          const result = await this.diagnosticChecker.checkFiles(message.params.files);
+          const result = await this.lspWorkerManager.checkDiagnostics(message.params.files);
           socket.send(
             this.serializeResponseMessage(message, result)
           );
