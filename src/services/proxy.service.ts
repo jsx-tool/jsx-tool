@@ -116,10 +116,6 @@ export class ProxyService {
     return false;
   }
 
-  private readonly decode = (s: string) => s.split('').map(c =>
-    String.fromCharCode(c.charCodeAt(0) - 3)
-  ).join('');
-
   private modifyChunk (
     proxyRes: http.IncomingMessage,
     res: ServerResponse
@@ -133,8 +129,8 @@ export class ProxyService {
     stream.on('data', (chunk: Buffer) => (body += chunk.toString()));
     stream.on('end', () => {
       try {
-        const searchPattern = this.decode('4h7#A#UhdfwVkduhgLqwhuqdov');
-        const replacePattern = this.decode('4h9#A#UhdfwVkduhgLqwhuqdov');
+        const searchPattern = '1e4 > ReactSharedInternals';
+        const replacePattern = '1e6 > ReactSharedInternals';
         const searchRegex = new RegExp(searchPattern.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g');
 
         const modifiedBody = body.replace(searchRegex, replacePattern);

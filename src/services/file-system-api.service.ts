@@ -5,6 +5,7 @@ import { readFileSync, writeFileSync, existsSync, readdirSync, statSync, watch, 
 import { resolve, join, relative, extname, dirname } from 'path';
 import * as path from 'path';
 import { ConfigService } from './config.service';
+import { execSync } from 'child_process';
 
 export interface ProjectInfo {
   projectRoot: string
@@ -74,6 +75,28 @@ export interface RmArgs {
   path: string
 }
 
+export interface GitFileStatus {
+  absolutePath: string
+  staged: boolean
+  status: string // e.g., 'M' (modified), 'A' (added), 'D' (deleted), 'R' (renamed), '??' (untracked)
+}
+
+export interface GitStatusResult {
+  isGitRepo: boolean
+  statusInfo: {
+    branch: string | null
+    headCommit: string | null
+    headCommitMessage: string | null
+    files: GitFileStatus[]
+  } | null
+  error?: string
+}
+
+export interface FileChangeEvent {
+  type: 'added' | 'removed' | 'changed'
+  absolutePath: string
+}
+
 @singleton()
 @injectable()
 export class FileSystemApiService {
@@ -85,20 +108,22 @@ export class FileSystemApiService {
     '.woff', '.woff2', '.ttf', '.otf', '.eot',
     '.mp4', '.webm', '.ogg', '.mp3', '.wav',
     '.txt', '.md', '.yml', '.yaml',
-    '.map', '.d.ts', '.md'
+    '.map', '.d.ts', '.md',
+    '.gitignore', '.env', '.prettierrc', '.eslintrc',
+    '.babelrc', '.npmrc', '.editorconfig'
   ]);
 
   private readonly watchers: FSWatcher[] = [];
   private readonly debounceTimers = new Map<string, NodeJS.Timeout>();
-  private readonly fileChangeListener: Array<() => void> = [];
-
-  setListener (listener: () => void): void {
-    this.fileChangeListener.push(listener);
-  }
+  private readonly fileChangeListener: Array<(changes: FileChangeEvent[]) => void> = [];
 
   constructor (
     @inject(ConfigService) private readonly configService: ConfigService
   ) {
+  }
+
+  setListener (listener: (changes: FileChangeEvent[]) => void): void {
+    this.fileChangeListener.push(listener);
   }
 
   public startFileWatchers () {
@@ -112,17 +137,35 @@ export class FileSystemApiService {
   }
 
   private watchDirs (cwd: string, roots: string[], additionalDirectories: string[]): void {
+    const pendingChanges = new Map<string, FileChangeEvent>();
+    let debounceTimer: NodeJS.Timeout | null = null;
+
     for (const root of this.dedupeRoots(cwd, roots, additionalDirectories)) {
-      const w = watch(root, { recursive: true }, () => {
-        const existing = this.debounceTimers.get(root);
-        if (existing) clearTimeout(existing);
+      const w = watch(root, { recursive: true }, (eventType, filename) => {
+        if (!filename) return;
+        const absolutePath = join(root, filename);
+        const fileExists = existsSync(absolutePath);
 
-        const t = setTimeout(() => {
-          this.fileChangeListener.forEach(listener => { listener(); });
-          this.debounceTimers.delete(root);
+        if (eventType === 'rename') {
+          if (fileExists) {
+            pendingChanges.set(absolutePath, { type: 'added', absolutePath });
+          } else {
+            pendingChanges.set(absolutePath, { type: 'removed', absolutePath });
+          }
+        } else if (eventType === 'change' && fileExists) {
+          pendingChanges.set(absolutePath, { type: 'changed', absolutePath });
+        }
+
+        if (debounceTimer) clearTimeout(debounceTimer);
+
+        debounceTimer = setTimeout(() => {
+          const changes = Array.from(pendingChanges.values());
+          if (changes.length > 0) {
+            this.fileChangeListener.forEach(listener => { listener(changes); });
+            pendingChanges.clear();
+          }
+          debounceTimer = null;
         }, 100);
-
-        this.debounceTimers.set(root, t);
       });
 
       this.watchers.push(w);
@@ -146,7 +189,7 @@ export class FileSystemApiService {
     };
   }
 
-  private isPathSafe (
+  public isPathSafe (
     filePath: string,
     stats?: Stats
   ): { safe: boolean, reason?: string } {
@@ -186,7 +229,10 @@ export class FileSystemApiService {
     }
 
     const ext = extname(absolutePath).toLowerCase();
-    if (!this.allowedExtensions.has(ext)) {
+    const fileName = absolutePath.split(path.sep).pop() || '';
+    const isDotFile = fileName.startsWith('.');
+
+    if (!this.allowedExtensions.has(ext) && !isDotFile) {
       return {
         safe: false,
         reason: `File type '${ext}' is not allowed. Only web assets are permitted.`
@@ -494,7 +540,6 @@ export class FileSystemApiService {
                   this.addPackageMainFiles(packagePath, files);
                 }
               }
-
               if (nodeModulesBase && nodeModulesBase !== rootPath) {
                 const alternateNodeModules = join(nodeModulesBase, 'node_modules');
                 if (existsSync(alternateNodeModules)) {
@@ -511,7 +556,9 @@ export class FileSystemApiService {
             }
           } else {
             const ext = extname(entry).toLowerCase();
-            if (this.allowedExtensions.has(ext)) {
+            const isDotFile = entry.startsWith('.');
+
+            if (this.allowedExtensions.has(ext) || isDotFile) {
               files.push(entryPath);
             }
           }
@@ -637,6 +684,136 @@ export class FileSystemApiService {
       }
     }
     return result;
+  }
+
+  public gitStatus (): GitStatusResult {
+    try {
+      const config = this.configService.getConfig();
+      const workingDir = config.workingDirectory;
+      const additionalDirs = (config.additionalDirectories ?? []).map(dir =>
+        resolve(workingDir, dir)
+      );
+      const allRoots = [workingDir, ...additionalDirs];
+      try {
+        execSync('git --version', {
+          stdio: 'pipe',
+          windowsHide: true
+        });
+      } catch {
+        return {
+          isGitRepo: false,
+          statusInfo: null,
+          error: 'Git is not installed or not in PATH'
+        };
+      }
+      try {
+        execSync('git rev-parse --git-dir', {
+          cwd: workingDir,
+          stdio: 'pipe',
+          windowsHide: true
+        });
+      } catch {
+        return {
+          isGitRepo: false,
+          statusInfo: null
+        };
+      }
+      let branch: string | null = null;
+      try {
+        branch = execSync('git rev-parse --abbrev-ref HEAD', {
+          cwd: workingDir,
+          encoding: 'utf8',
+          stdio: 'pipe',
+          windowsHide: true
+        }).trim();
+      } catch {
+        branch = null;
+      }
+      let headCommit: string | null = null;
+      try {
+        headCommit = execSync('git rev-parse HEAD', {
+          cwd: workingDir,
+          encoding: 'utf8',
+          stdio: 'pipe',
+          windowsHide: true
+        }).trim();
+      } catch {
+        headCommit = null;
+      }
+
+      let headCommitMessage: string | null = null;
+      try {
+        headCommitMessage = execSync('git log -1 --pretty=%B', {
+          cwd: workingDir,
+          encoding: 'utf8',
+          stdio: 'pipe',
+          windowsHide: true
+        }).trim();
+      } catch {
+        headCommitMessage = null;
+      }
+
+      const statusOutput = execSync('git status --porcelain', {
+        cwd: workingDir,
+        encoding: 'utf8',
+        stdio: 'pipe',
+        windowsHide: true
+      });
+      const files: GitFileStatus[] = [];
+      const lines = statusOutput.split('\n').filter(line => line.trim());
+      for (const line of lines) {
+        if (line.length < 4) continue;
+        const indexStatus = line[0];
+        const workTreeStatus = line[1];
+        const filePath = line.substring(3).trim();
+        let actualPath = filePath;
+        if (filePath.includes(' -> ')) {
+          actualPath = filePath.split(' -> ')[1];
+        }
+        if (actualPath.startsWith('"') && actualPath.endsWith('"')) {
+          actualPath = actualPath.slice(1, -1);
+        }
+        const absolutePath = resolve(workingDir, actualPath);
+        const isInAllowedRoot = allRoots.some(root => {
+          const rel = relative(root, absolutePath);
+          return !rel.startsWith('..') && !path.isAbsolute(rel);
+        });
+        if (!isInAllowedRoot) {
+          continue;
+        }
+        const staged = indexStatus !== ' ' && indexStatus !== '?';
+        let status: string;
+        if (indexStatus === '?' && workTreeStatus === '?') {
+          status = '??';
+        } else if (staged && workTreeStatus !== ' ') {
+          status = `${indexStatus}${workTreeStatus}`;
+        } else if (staged) {
+          status = indexStatus;
+        } else {
+          status = workTreeStatus;
+        }
+        files.push({
+          absolutePath,
+          staged,
+          status
+        });
+      }
+      return {
+        isGitRepo: true,
+        statusInfo: {
+          branch,
+          headCommit,
+          headCommitMessage,
+          files
+        }
+      };
+    } catch (error) {
+      return {
+        isGitRepo: false,
+        statusInfo: null,
+        error: `Error reading git status: ${(error as Error).message}`
+      };
+    }
   }
 
   public cleanup (): void {

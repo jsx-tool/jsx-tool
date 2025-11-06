@@ -31,10 +31,6 @@ export function jsxToolDevServer (
   const toolsConfig = app.getContainerConfig();
   toolsConfig.isViteInstallation = true;
 
-  const decode = (s: string) => s.split('').map(c =>
-    String.fromCharCode(c.charCodeAt(0) - 3)
-  ).join('');
-
   return {
     name: 'jsx-tool-dev-server',
     apply: 'serve' as const,
@@ -134,8 +130,8 @@ export function jsxToolDevServer (
       const regex = /\/node_modules\/\.vite\/deps\/(chunk-.*|react_jsx-dev-runtime\.js)/;
 
       if (regex.test(id)) {
-        const searchPattern = decode('4h7#A#UhdfwVkduhgLqwhuqdov');
-        const replacePattern = decode('4h9#A#UhdfwVkduhgLqwhuqdov');
+        const searchPattern = '1e4 > ReactSharedInternals';
+        const replacePattern = '1e6 > ReactSharedInternals';
 
         const searchRegex = new RegExp(searchPattern.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g');
 

@@ -11,12 +11,15 @@ jest.mock('path', () => ({
   watch: jest.fn(() => ({ close: jest.fn() })),
 }));
 
+jest.mock('child_process');
+
 import 'reflect-metadata';
 import { container } from 'tsyringe';
 import { FileSystemApiService } from '../file-system-api.service';
 import { ConfigService } from '../config.service';
 import * as fs from 'fs';
 import * as path from 'path';
+import { execSync } from 'child_process';
 
 function setupMockFileSystem(files: Record<string, string>) {
   const mockStats = (path: string) => ({
@@ -960,6 +963,292 @@ describe('FileSystemApiService', () => {
         expect(results[1].success).toBe(true);
         expect(results[1].files).toContain('/project/build/bundle.js');
       });
+    });
+  });
+
+  describe('gitStatus', () => {
+    beforeEach(() => {
+      const pathMock = path as jest.Mocked<typeof path>;
+      pathMock.resolve.mockImplementation((...args) => {
+        if (args.length > 1) {
+          const base = args[0];
+          const relative = args[1];
+          if (relative.startsWith('/')) return relative;
+          return `${base}/${relative}`.replace(/\/+/g, '/');
+        }
+        const p = args[0];
+        return p.startsWith('/') ? p : `/project/root/${p}`;
+      });
+      pathMock.relative.mockImplementation((from, to) => {
+        if (to.startsWith(from)) {
+          return to.slice(from.length + 1);
+        }
+        return '../' + to;
+      });
+      pathMock.isAbsolute.mockImplementation((p) => p.startsWith('/'));
+    });
+
+    it('should return isGitRepo false when git is not installed', () => {
+      (execSync as jest.Mock).mockImplementation(() => {
+        throw new Error('git: command not found');
+      });
+
+      const result = service.gitStatus();
+
+      expect(result.isGitRepo).toBe(false);
+      expect(result.statusInfo).toBeNull();
+      expect(result.error).toContain('Git is not installed');
+    });
+
+    it('should return isGitRepo false when not in a git repository', () => {
+      (execSync as jest.Mock)
+        .mockReturnValueOnce('git version 2.39.0')
+        .mockImplementationOnce(() => {
+          throw new Error('fatal: not a git repository');
+        });
+
+      const result = service.gitStatus();
+
+      expect(result.isGitRepo).toBe(false);
+      expect(result.statusInfo).toBeNull();
+      expect(result.error).toBeUndefined();
+    });
+
+    it('should return git status for a valid repository', () => {
+      (execSync as jest.Mock)
+        .mockReturnValueOnce('git version 2.39.0')
+        .mockReturnValueOnce('/project/root/.git\n')
+        .mockReturnValueOnce('main\n')
+        .mockReturnValueOnce('abc123def456\n')
+        .mockReturnValueOnce('Initial commit\n')
+        .mockReturnValueOnce(' M src/app.tsx\nM  src/utils.ts\n?? src/new-file.js\n');
+
+      const result = service.gitStatus();
+
+      expect(result.isGitRepo).toBe(true);
+      expect(result.statusInfo).not.toBeNull();
+      expect(result.statusInfo?.branch).toBe('main');
+      expect(result.statusInfo?.headCommit).toBe('abc123def456');
+      expect(result.statusInfo?.files).toHaveLength(3);
+    });
+
+    it('should correctly identify staged files', () => {
+      (execSync as jest.Mock)
+        .mockReturnValueOnce('git version 2.39.0')
+        .mockReturnValueOnce('/project/root/.git\n')
+        .mockReturnValueOnce('main\n')
+        .mockReturnValueOnce('abc123def456\n')
+        .mockReturnValueOnce('Initial commit\n')
+        .mockReturnValueOnce('M  src/staged.ts\n M src/unstaged.ts\nMM src/both.ts\n');
+
+      const result = service.gitStatus();
+
+      expect(result.statusInfo?.files).toHaveLength(3);
+
+      const stagedFile = result.statusInfo?.files.find(f => f.absolutePath.includes('staged.ts'));
+      expect(stagedFile?.staged).toBe(true);
+      expect(stagedFile?.status).toBe('M');
+
+      const unstagedFile = result.statusInfo?.files.find(f => f.absolutePath.includes('unstaged.ts'));
+      expect(unstagedFile?.staged).toBe(false);
+      expect(unstagedFile?.status).toBe('M');
+
+      const bothFile = result.statusInfo?.files.find(f => f.absolutePath.includes('both.ts'));
+      expect(bothFile?.staged).toBe(true);
+      expect(bothFile?.status).toBe('MM');
+    });
+
+    it('should handle untracked files correctly', () => {
+      (execSync as jest.Mock)
+        .mockReturnValueOnce('git version 2.39.0')
+        .mockReturnValueOnce('/project/root/.git\n')
+        .mockReturnValueOnce('main\n')
+        .mockReturnValueOnce('abc123def456\n')
+        .mockReturnValueOnce('Initial commit\n')
+        .mockReturnValueOnce('?? src/new-file.ts\n?? src/another-new.js\n');
+
+      const result = service.gitStatus();
+
+      expect(result.statusInfo?.files).toHaveLength(2);
+      expect(result.statusInfo?.files[0].staged).toBe(false);
+      expect(result.statusInfo?.files[0].status).toBe('??');
+      expect(result.statusInfo?.files[1].staged).toBe(false);
+      expect(result.statusInfo?.files[1].status).toBe('??');
+    });
+
+    it('should handle renamed files', () => {
+      (execSync as jest.Mock)
+        .mockReturnValueOnce('git version 2.39.0')
+        .mockReturnValueOnce('/project/root/.git\n')
+        .mockReturnValueOnce('main\n')
+        .mockReturnValueOnce('abc123def456\n')
+        .mockReturnValueOnce('Initial commit\n')
+        .mockReturnValueOnce('R  old-name.ts -> src/new-name.ts\n');
+
+      const result = service.gitStatus();
+
+      expect(result.statusInfo?.files).toHaveLength(1);
+      expect(result.statusInfo?.files[0].absolutePath).toBe('/project/root/src/new-name.ts');
+      expect(result.statusInfo?.files[0].staged).toBe(true);
+      expect(result.statusInfo?.files[0].status).toBe('R');
+    });
+
+    it('should filter files outside allowed roots', () => {
+      (execSync as jest.Mock)
+        .mockReturnValueOnce('git version 2.39.0')
+        .mockReturnValueOnce('/project/root/.git\n')
+        .mockReturnValueOnce('main\n')
+        .mockReturnValueOnce('abc123def456\n')
+        .mockReturnValueOnce('Initial commit\n')
+        .mockReturnValueOnce(' M src/app.ts\n');
+
+      const result = service.gitStatus();
+
+      expect(result.statusInfo?.files).toHaveLength(1);
+      expect(result.statusInfo?.files[0].absolutePath).toBe('/project/root/src/app.ts');
+    });
+
+    it('should include files from additional directories', () => {
+      mockConfigService.getConfig.mockReturnValue({
+        workingDirectory: mockWorkingDir,
+        additionalDirectories: ['packages/ui', 'packages/utils']
+      } as any);
+
+      (execSync as jest.Mock)
+        .mockReturnValueOnce('git version 2.39.0')
+        .mockReturnValueOnce('/project/root/.git\n')
+        .mockReturnValueOnce('main\n')
+        .mockReturnValueOnce('abc123def456\n')
+        .mockReturnValueOnce('Initial commit\n')
+        .mockReturnValueOnce(' M src/app.ts\n M packages/ui/Button.tsx\n M packages/utils/helpers.ts\n');
+
+      const result = service.gitStatus();
+
+      expect(result.statusInfo?.files).toHaveLength(3);
+      const filePaths = result.statusInfo?.files.map(f => f.absolutePath);
+      expect(filePaths).toContain('/project/root/src/app.ts');
+      expect(filePaths).toContain('/project/root/packages/ui/Button.tsx');
+      expect(filePaths).toContain('/project/root/packages/utils/helpers.ts');
+    });
+
+    it('should handle empty repository (no commits)', () => {
+      (execSync as jest.Mock)
+        .mockReturnValueOnce('git version 2.39.0')
+        .mockReturnValueOnce('/project/root/.git\n')
+        .mockImplementationOnce(() => {
+          throw new Error('fatal: ambiguous argument HEAD');
+        })
+        .mockImplementationOnce(() => {
+          throw new Error('fatal: ambiguous argument HEAD');
+        })
+        .mockReturnValueOnce('Initial commit\n')
+        .mockReturnValueOnce('');
+
+      const result = service.gitStatus();
+
+      expect(result.isGitRepo).toBe(true);
+      expect(result.statusInfo?.branch).toBeNull();
+      expect(result.statusInfo?.headCommit).toBeNull();
+      expect(result.statusInfo?.files).toEqual([]);
+    });
+
+    it('should handle files with special characters in names', () => {
+      (execSync as jest.Mock)
+        .mockReturnValueOnce('git version 2.39.0')
+        .mockReturnValueOnce('/project/root/.git\n')
+        .mockReturnValueOnce('main\n')
+        .mockReturnValueOnce('abc123def456\n')
+        .mockReturnValueOnce('Initial commit\n')
+        .mockReturnValueOnce(' M src/file-with-spaces.ts\n M src/normal-file.ts\n');
+
+      const result = service.gitStatus();
+
+      expect(result.statusInfo?.files).toHaveLength(2);
+      const fileWithSpaces = result.statusInfo?.files.find(f =>
+        f.absolutePath.includes('file-with-spaces.ts')
+      );
+      expect(fileWithSpaces).toBeDefined();
+      expect(fileWithSpaces?.absolutePath).toBe('/project/root/src/file-with-spaces.ts');
+    });
+
+    it('should handle different file status codes', () => {
+      (execSync as jest.Mock)
+        .mockReturnValueOnce('git version 2.39.0')
+        .mockReturnValueOnce('/project/root/.git\n')
+        .mockReturnValueOnce('main\n')
+        .mockReturnValueOnce('abc123def456\n')
+        .mockReturnValueOnce('Initial commit\n')
+        .mockReturnValueOnce('A  src/added.ts\nD  src/deleted.ts\nM  src/modified.ts\nR  old.ts -> src/renamed.ts\n');
+
+      const result = service.gitStatus();
+
+      expect(result.statusInfo?.files).toHaveLength(4);
+
+      const added = result.statusInfo?.files.find(f => f.absolutePath.includes('added.ts'));
+      expect(added?.status).toBe('A');
+      expect(added?.staged).toBe(true);
+
+      const deleted = result.statusInfo?.files.find(f => f.absolutePath.includes('deleted.ts'));
+      expect(deleted?.status).toBe('D');
+      expect(deleted?.staged).toBe(true);
+
+      const modified = result.statusInfo?.files.find(f => f.absolutePath.includes('modified.ts'));
+      expect(modified?.status).toBe('M');
+      expect(modified?.staged).toBe(true);
+
+      const renamed = result.statusInfo?.files.find(f => f.absolutePath.includes('renamed.ts'));
+      expect(renamed?.status).toBe('R');
+      expect(renamed?.staged).toBe(true);
+    });
+
+    it('should handle different branch names', () => {
+      (execSync as jest.Mock)
+        .mockReturnValueOnce('git version 2.39.0')
+        .mockReturnValueOnce('/project/root/.git\n')
+        .mockReturnValueOnce('feature/awesome-feature\n')
+        .mockReturnValueOnce('def789ghi012\n')
+        .mockReturnValueOnce('Initial commit\n')
+        .mockReturnValueOnce('');
+
+      const result = service.gitStatus();
+
+      expect(result.isGitRepo).toBe(true);
+      expect(result.statusInfo?.branch).toBe('feature/awesome-feature');
+      expect(result.statusInfo?.headCommit).toBe('def789ghi012');
+    });
+
+    it('should handle git command execution errors', () => {
+      (execSync as jest.Mock)
+        .mockReturnValueOnce('git version 2.39.0')
+        .mockReturnValueOnce('/project/root/.git\n')
+        .mockReturnValueOnce('main\n')
+        .mockReturnValueOnce('abc123def456\n')
+        .mockReturnValueOnce('Initial commit\n')
+        .mockImplementationOnce(() => {
+          throw new Error('fatal: git status failed');
+        });
+
+      const result = service.gitStatus();
+
+      expect(result.isGitRepo).toBe(false);
+      expect(result.statusInfo).toBeNull();
+      expect(result.error).toContain('Error reading git status');
+    });
+
+    it('should handle detached HEAD state', () => {
+      (execSync as jest.Mock)
+        .mockReturnValueOnce('git version 2.39.0')
+        .mockReturnValueOnce('/project/root/.git\n')
+        .mockReturnValueOnce('HEAD\n')
+        .mockReturnValueOnce('abc123def456\n')
+        .mockReturnValueOnce('Initial commit\n')
+        .mockReturnValueOnce('');
+
+      const result = service.gitStatus();
+
+      expect(result.isGitRepo).toBe(true);
+      expect(result.statusInfo?.branch).toBe('HEAD');
+      expect(result.statusInfo?.headCommit).toBe('abc123def456');
     });
   });
 });
