@@ -16,7 +16,7 @@
     "experimentalDecorators": true,
     "emitDecoratorMetadata": true
   },
-  "include": ["src/**/*"],
+  "include": ["src/**/*", "src/workers/**/*"],
   "transformMixedEsModules": true,
   "exclude": ["node_modules", "dist", "**/*.test.ts"]
 }
