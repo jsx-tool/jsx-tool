@@ -1,6 +1,6 @@
 {
   "name": "@jsx-tool/jsx-tool",
-  "version": "0.0.19",
+  "version": "0.0.20",
   "description": "Development server for JSX Tool",
   "repository": {
     "type": "git",
