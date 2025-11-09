@@ -1,10 +1,12 @@
 import { injectable, inject, singleton } from 'tsyringe';
 import { WebSocketServer, WebSocket } from 'ws';
+import { createVerify } from 'crypto';
 import { ConfigService } from './config.service';
 import { Logger } from './logger.service';
 import { KeyFetcher } from './key-fetcher.service';
 import { KeyManager } from './key-manager.service';
 import { SignatureVerifierService } from './signature-verifier.service';
+import { LocalKeyService } from './local-key.service';
 import type {
   ExistsResult,
   LsArgs,
@@ -17,7 +19,13 @@ import type {
   WriteFileArgs,
   WriteFileResult,
   GitStatusResult,
-  FileChangeEvent
+  FileChangeEvent,
+  MoveItemsArgs,
+  CopyToClipboardArgs,
+  ImportItemsArgs,
+  MoveItemsResult,
+  CopyToClipboardResult,
+  ImportItemsResult
 } from './file-system-api.service';
 import {
   FileSystemApiService
@@ -63,6 +71,14 @@ export interface RequestParamMap {
   tree_many: {
     dirPaths: string[]
   }
+
+  move_items: MoveItemsArgs
+
+  // host-level
+  copy_to_clipboard: CopyToClipboardArgs
+
+  import_items: ImportItemsArgs
+
   // sdk api
   open_element: {
     file_path: string
@@ -96,7 +112,7 @@ export interface RequestParamMap {
   }
 
   // git
-  get_git_status: GitStatusResult
+  get_git_status: unknown
 
   // ripgrep
   search: {
@@ -154,6 +170,13 @@ export interface EventPayloadMap {
     dirPaths: string[]
     responses: TreeResult[]
   }
+
+  move_items: MoveItemsResult
+
+  copy_to_clipboard: CopyToClipboardResult
+
+  import_items: ImportItemsResult
+
   get_project_info: {
     projectInfo: ProjectInfo
   }
@@ -181,7 +204,7 @@ export interface EventPayloadMap {
 
   check_diagnostics: DiagnosticCheckResult
 
-  get_git_status: unknown
+  get_git_status: GitStatusResult
 
   search: RipGrepSearchResult
 }
@@ -193,23 +216,47 @@ export interface WebSocketInboundEvent<K extends keyof RequestParamMap> {
   message_id: string
 }
 
-type WebSocketInboundRequest<K extends keyof RequestParamMap> =
+export type WebSocketInboundRequest<K extends keyof RequestParamMap> =
   WebSocketInboundEvent<K>;
 
-type WebSocketPostInitMessage =
+export type WebSocketPostInitMessage =
   {
     [K in keyof RequestParamMap]: WebSocketInboundRequest<K>;
   }[keyof RequestParamMap];
 
-interface WebSocketInitMessage {
-  event_name: 'key_registered'
-  uuid: string
-  [key: string]: any
+export type ForwardableEvents =
+  | 'get_git_status'
+  | 'copy_to_clipboard'
+  | 'import_items';
+
+export interface HostForwardRequest<K extends ForwardableEvents> {
+  event_name: 'host_forward'
+  request_uuid: string
+  workspace_dir: string
+  wrapped_request: WebSocketInboundRequest<K>
 }
 
-type WebSocketMessage = WebSocketPostInitMessage | WebSocketInitMessage;
+export interface HostResponseMessage<K extends ForwardableEvents> {
+  event_name: 'host_response'
+  request_uuid: string
+  wrapped_response: WebSocketResponseEvent<K>
+}
 
-interface WebSocketResponseEvent<K extends keyof EventPayloadMap> {
+type WebSocketUnsignedMessage =
+  | {
+    event_name: 'key_registered'
+    uuid: string
+    [key: string]: any
+  }
+  | {
+    event_name: 'host_init'
+    signature: string
+    timestamp: number
+  } | HostResponseMessage<ForwardableEvents>;
+
+type WebSocketMessage = WebSocketPostInitMessage | WebSocketUnsignedMessage;
+
+export interface WebSocketResponseEvent<K extends keyof EventPayloadMap> {
   event_response: K
   message_id: string
   payload: EventPayloadMap[K]
@@ -228,6 +275,9 @@ const signedEvents = new Set<keyof RequestParamMap>([
   'ls_many',
   'rm_many',
   'tree_many',
+  'move_items',
+  'copy_to_clipboard',
+  'import_items',
   'open_element',
   'open_file',
   'get_project_info',
@@ -248,6 +298,12 @@ const signedEvents = new Set<keyof RequestParamMap>([
 export class WebSocketService {
   private wss?: WebSocketServer;
   private readonly clients = new Set<WebSocket>();
+  private hostClient: WebSocket | null = null;
+  private readonly pendingHostRequests = new Map<string, {
+    resolve: (payload: any) => void
+    reject: (error: Error) => void
+    timeout: NodeJS.Timeout
+  }>();
 
   constructor (
     @inject(ConfigService) private readonly config: ConfigService,
@@ -259,7 +315,8 @@ export class WebSocketService {
     @inject(FileSystemApiService) private readonly fileSystemApi: FileSystemApiService,
     @inject(DesktopEmitterService) private readonly desktopEmitterService: DesktopEmitterService,
     @inject(LspWorkerManagerService) private readonly lspWorkerManager: LspWorkerManagerService,
-    @inject(RipGrepService) private readonly ripgrepService: RipGrepService
+    @inject(RipGrepService) private readonly ripgrepService: RipGrepService,
+    @inject(LocalKeyService) private readonly localKeyService: LocalKeyService
   ) { }
 
   async startWithHttpServer (httpServer: Server): Promise<void> {
@@ -331,12 +388,23 @@ export class WebSocketService {
 
       ws.on('close', () => {
         this.clients.delete(ws);
+
+        if (this.hostClient === ws) {
+          this.logger.warn('Host client disconnected');
+          this.hostClient = null;
+        }
+
         this.logger.info('WebSocket client disconnected');
       });
 
       ws.on('error', (error) => {
         this.logger.error(`WebSocket error: ${error.message}`);
         this.clients.delete(ws);
+
+        if (this.hostClient === ws) {
+          this.logger.error('Host client error');
+          this.hostClient = null;
+        }
       });
     });
 
@@ -356,6 +424,11 @@ export class WebSocketService {
     this.keyFetcher.cleanup();
     this.keyManager.cleanup();
 
+    for (const [, pending] of this.pendingHostRequests.entries()) {
+      clearTimeout(pending.timeout);
+      pending.reject(new Error('WebSocket server shutting down'));
+    }
+
     await this.lspWorkerManager.stop();
 
     await Promise.all(
@@ -371,6 +444,7 @@ export class WebSocketService {
     );
 
     this.clients.clear();
+    this.hostClient = null;
     await new Promise<void>((resolve) => { this.wss!.close(() => { resolve(); }); });
     this.logger.info('WebSocket server stopped');
   }
@@ -385,12 +459,23 @@ export class WebSocketService {
         return;
       }
 
+      if (message.event_name === 'host_init') {
+        this.handleHostInit(message, socket);
+        return;
+      }
+
+      if (message.event_name === 'host_response' && socket === this.hostClient) {
+        this.handleHostResponse(message as HostResponseMessage<ForwardableEvents>);
+        return;
+      }
+
       if (!signedEvents.has(message.event_name as any)) {
         this.logger.warn(`Unknown event received: ${message.event_name}`);
         return;
       }
 
-      const { signature, ...messageWithoutSignature } = message;
+      const postInitMessage = message as WebSocketPostInitMessage;
+      const { signature, ...messageWithoutSignature } = postInitMessage;
 
       const signedPayload = {
         event_name: messageWithoutSignature.event_name,
@@ -403,12 +488,12 @@ export class WebSocketService {
         return;
       }
 
-      switch (message.event_name) {
+      switch (postInitMessage.event_name) {
         case 'read_file': {
-          const res = this.fileSystemApi.readFile(message.params.filePath);
+          const res = this.fileSystemApi.readFile(postInitMessage.params.filePath);
           socket.send(
-            this.serializeResponseMessage(message, {
-              filePath: message.params.filePath,
+            this.serializeResponseMessage(postInitMessage, {
+              filePath: postInitMessage.params.filePath,
               response: res
             })
           );
@@ -417,13 +502,13 @@ export class WebSocketService {
 
         case 'write_file': {
           const res = this.fileSystemApi.writeToFile(
-            message.params.filePath,
-            message.params.content,
-            message.params.encoding
+            postInitMessage.params.filePath,
+            postInitMessage.params.content,
+            postInitMessage.params.encoding
           );
           socket.send(
-            this.serializeResponseMessage(message, {
-              filePath: message.params.filePath,
+            this.serializeResponseMessage(postInitMessage, {
+              filePath: postInitMessage.params.filePath,
               response: res
             })
           );
@@ -431,10 +516,10 @@ export class WebSocketService {
         }
 
         case 'exists': {
-          const res = this.fileSystemApi.exists(message.params.filePath);
+          const res = this.fileSystemApi.exists(postInitMessage.params.filePath);
           socket.send(
-            this.serializeResponseMessage(message, {
-              filePath: message.params.filePath,
+            this.serializeResponseMessage(postInitMessage, {
+              filePath: postInitMessage.params.filePath,
               response: res
             })
           );
@@ -443,12 +528,12 @@ export class WebSocketService {
 
         case 'ls': {
           const res = this.fileSystemApi.ls(
-            message.params.dirPath,
-            message.params.options
+            postInitMessage.params.dirPath,
+            postInitMessage.params.options
           );
           socket.send(
-            this.serializeResponseMessage(message, {
-              filePath: message.params.dirPath,
+            this.serializeResponseMessage(postInitMessage, {
+              filePath: postInitMessage.params.dirPath,
               response: res
             })
           );
@@ -456,10 +541,10 @@ export class WebSocketService {
         }
 
         case 'rm': {
-          const res = this.fileSystemApi.rm(message.params.path);
+          const res = this.fileSystemApi.rm(postInitMessage.params.path);
           socket.send(
-            this.serializeResponseMessage(message, {
-              path: message.params.path,
+            this.serializeResponseMessage(postInitMessage, {
+              path: postInitMessage.params.path,
               response: res
             })
           );
@@ -468,21 +553,21 @@ export class WebSocketService {
 
         case 'tree': {
           const res = this.fileSystemApi.tree(
-            message.params.filePath
+            postInitMessage.params.filePath
           );
           socket.send(
-            this.serializeResponseMessage(message, {
-              filePath: message.params.filePath,
+            this.serializeResponseMessage(postInitMessage, {
+              filePath: postInitMessage.params.filePath,
               response: res
             })
           );
           break;
         }
         case 'read_file_many': {
-          const res = this.fileSystemApi.readFileMany(message.params.files);
+          const res = this.fileSystemApi.readFileMany(postInitMessage.params.files);
           socket.send(
-            this.serializeResponseMessage(message, {
-              files: message.params.files,
+            this.serializeResponseMessage(postInitMessage, {
+              files: postInitMessage.params.files,
               responses: res
             })
           );
@@ -490,10 +575,10 @@ export class WebSocketService {
         }
 
         case 'write_file_many': {
-          const res = this.fileSystemApi.writeToFileMany(message.params.files);
+          const res = this.fileSystemApi.writeToFileMany(postInitMessage.params.files);
           socket.send(
-            this.serializeResponseMessage(message, {
-              files: message.params.files,
+            this.serializeResponseMessage(postInitMessage, {
+              files: postInitMessage.params.files,
               responses: res
             })
           );
@@ -501,10 +586,10 @@ export class WebSocketService {
         }
 
         case 'exists_many': {
-          const res = this.fileSystemApi.existsMany(message.params.paths);
+          const res = this.fileSystemApi.existsMany(postInitMessage.params.paths);
           socket.send(
-            this.serializeResponseMessage(message, {
-              paths: message.params.paths,
+            this.serializeResponseMessage(postInitMessage, {
+              paths: postInitMessage.params.paths,
               responses: res
             })
           );
@@ -512,10 +597,10 @@ export class WebSocketService {
         }
 
         case 'ls_many': {
-          const res = this.fileSystemApi.lsMany(message.params.dirs);
+          const res = this.fileSystemApi.lsMany(postInitMessage.params.dirs);
           socket.send(
-            this.serializeResponseMessage(message, {
-              dirs: message.params.dirs,
+            this.serializeResponseMessage(postInitMessage, {
+              dirs: postInitMessage.params.dirs,
               responses: res
             })
           );
@@ -523,10 +608,10 @@ export class WebSocketService {
         }
 
         case 'rm_many': {
-          const res = this.fileSystemApi.rmMany(message.params.paths);
+          const res = this.fileSystemApi.rmMany(postInitMessage.params.paths);
           socket.send(
-            this.serializeResponseMessage(message, {
-              paths: message.params.paths,
+            this.serializeResponseMessage(postInitMessage, {
+              paths: postInitMessage.params.paths,
               responses: res
             })
           );
@@ -534,30 +619,74 @@ export class WebSocketService {
         }
 
         case 'tree_many': {
-          const res = this.fileSystemApi.treeMany(message.params.dirPaths);
+          const res = this.fileSystemApi.treeMany(postInitMessage.params.dirPaths);
           socket.send(
-            this.serializeResponseMessage(message, {
-              dirPaths: message.params.dirPaths,
+            this.serializeResponseMessage(postInitMessage, {
+              dirPaths: postInitMessage.params.dirPaths,
               responses: res
             })
           );
           break;
         }
 
+        case 'move_items': {
+          const res = this.fileSystemApi.moveItems(
+            postInitMessage.params.sourcePaths,
+            postInitMessage.params.targetDirectory
+          );
+          socket.send(
+            this.serializeResponseMessage(postInitMessage, res)
+          );
+          break;
+        }
+
+        case 'copy_to_clipboard': {
+          if (this.hasHostClient()) {
+            const result = await this.sendToHost(postInitMessage);
+            socket.send(
+              this.serializeResponseMessage(postInitMessage, result)
+            );
+          } else {
+            const res = this.fileSystemApi.copyToClipboard(postInitMessage.params.paths);
+            socket.send(
+              this.serializeResponseMessage(postInitMessage, res)
+            );
+          }
+          break;
+        }
+
+        case 'import_items': {
+          if (this.hasHostClient()) {
+            const result = await this.sendToHost(postInitMessage);
+            socket.send(
+              this.serializeResponseMessage(postInitMessage, result)
+            );
+          } else {
+            const res = this.fileSystemApi.importItems(
+              postInitMessage.params.sourcePaths,
+              postInitMessage.params.targetDirectory
+            );
+            socket.send(
+              this.serializeResponseMessage(postInitMessage, res)
+            );
+          }
+          break;
+        }
+
         case 'open_element': {
-          this.desktopEmitterService.forwardMessage(message);
+          this.desktopEmitterService.forwardMessage(postInitMessage);
           break;
         }
 
         case 'open_file': {
-          this.desktopEmitterService.forwardMessage(message);
+          this.desktopEmitterService.forwardMessage(postInitMessage);
           break;
         }
 
         case 'get_project_info': {
           const projectInfo = this.fileSystemApi.projectInfo();
           socket.send(
-            this.serializeResponseMessage(message, {
+            this.serializeResponseMessage(postInitMessage, {
               projectInfo
             })
           );
@@ -566,7 +695,7 @@ export class WebSocketService {
 
         case 'get_unix_client_info': {
           socket.send(
-            this.serializeResponseMessage(message, {
+            this.serializeResponseMessage(postInitMessage, {
               unixConnectionCount: this.desktopClientRegistryService.count(),
               utilizedApis: this.desktopClientRegistryService.utilizedApis()
             })
@@ -576,7 +705,7 @@ export class WebSocketService {
 
         case 'get_prompt_rules': {
           socket.send(
-            this.serializeResponseMessage(message, {
+            this.serializeResponseMessage(postInitMessage, {
               rules: this.config.getPromptRules()
             })
           );
@@ -585,7 +714,7 @@ export class WebSocketService {
 
         case 'get_version': {
           socket.send(
-            this.serializeResponseMessage(message, {
+            this.serializeResponseMessage(postInitMessage, {
               version: VERSION
             })
           );
@@ -596,11 +725,11 @@ export class WebSocketService {
           const { noProxy, proxyHost, proxyPort, proxyProtocol, serverHost, serverPort, serverProtocol } = this.config.getConfig();
           if (noProxy && !this.config.isViteInstallation) {
             socket.send(
-              this.serializeResponseMessage(message, null)
+              this.serializeResponseMessage(postInitMessage, null)
             );
           }
           socket.send(
-            this.serializeResponseMessage(message, {
+            this.serializeResponseMessage(postInitMessage, {
               serverUrl: `${serverProtocol}://${serverHost}:${serverPort}`,
               proxyUrl: `${proxyProtocol}://${proxyHost}:${proxyPort}`,
               isViteInstallation: this.config.isViteInstallation
@@ -610,12 +739,12 @@ export class WebSocketService {
         }
 
         case 'set_should_modify_next_object_counter': {
-          this.config.setShouldModifyNextObjectCounter(message.params.shouldModifyNextObjectCounter);
+          this.config.setShouldModifyNextObjectCounter(postInitMessage.params.shouldModifyNextObjectCounter);
           if (this.config.isViteInstallation) {
             this.config.fullReload();
           }
           socket.send(
-            this.serializeResponseMessage(message, {
+            this.serializeResponseMessage(postInitMessage, {
               shouldModifyNextObjectCounter: this.config.shouldModifyNextObjectCounter
             })
           );
@@ -623,42 +752,49 @@ export class WebSocketService {
         }
 
         case 'lsp_request': {
-          const response = await this.lspWorkerManager.handleJsonRpc(message.params);
-          socket.send(this.serializeResponseMessage(message, response));
+          const response = await this.lspWorkerManager.handleJsonRpc(postInitMessage.params);
+          socket.send(this.serializeResponseMessage(postInitMessage, response));
           break;
         }
 
         case 'open_files': {
-          await this.lspWorkerManager.initializeOpenFiles(message.params.files);
+          await this.lspWorkerManager.initializeOpenFiles(postInitMessage.params.files);
           socket.send(
-            this.serializeResponseMessage(message, {})
+            this.serializeResponseMessage(postInitMessage, {})
           );
           break;
         }
 
         case 'check_diagnostics': {
-          const result = await this.lspWorkerManager.checkDiagnostics(message.params.files);
+          const result = await this.lspWorkerManager.checkDiagnostics(postInitMessage.params.files);
           socket.send(
-            this.serializeResponseMessage(message, result)
+            this.serializeResponseMessage(postInitMessage, result)
           );
           break;
         }
 
         case 'get_git_status': {
-          const result = this.fileSystemApi.gitStatus();
-          socket.send(
-            this.serializeResponseMessage(message, result)
-          );
+          if (this.hasHostClient()) {
+            const result = await this.sendToHost(postInitMessage);
+            socket.send(
+              this.serializeResponseMessage(postInitMessage, result)
+            );
+          } else {
+            const result = this.fileSystemApi.gitStatus();
+            socket.send(
+              this.serializeResponseMessage(postInitMessage, result)
+            );
+          }
           break;
         }
 
         case 'search': {
           const result = await this.ripgrepService.search(
-            message.params.pattern,
-            message.params.options
+            postInitMessage.params.pattern,
+            postInitMessage.params.options
           );
           socket.send(
-            this.serializeResponseMessage(message, result)
+            this.serializeResponseMessage(postInitMessage, result)
           );
           break;
         }
@@ -669,6 +805,120 @@ export class WebSocketService {
         }`
       );
     }
+  }
+
+  private handleHostInit (message: { event_name: 'host_init', signature: string, timestamp: number }, socket: WebSocket): void {
+    const publicKey = this.localKeyService.getPublicKey();
+    if (!publicKey) {
+      this.logger.error('Cannot verify host init: No public key available');
+      socket.send(JSON.stringify({
+        event_name: 'host_init_rejected',
+        reason: 'No public key available'
+      }));
+      return;
+    }
+
+    try {
+      const payload = JSON.stringify({
+        event_name: 'host_init',
+        timestamp: message.timestamp
+      });
+
+      const verify = createVerify('SHA256');
+      verify.update(payload);
+      verify.end();
+
+      const isValid = verify.verify(publicKey, message.signature, 'base64');
+
+      if (!isValid) {
+        this.logger.warn('Host init rejected: Invalid signature');
+        socket.send(JSON.stringify({
+          event_name: 'host_init_rejected',
+          reason: 'Invalid signature'
+        }));
+        return;
+      }
+
+      const timeDiff = Math.abs(Date.now() - message.timestamp);
+      if (timeDiff > 30000) {
+        this.logger.warn('Host init rejected: Timestamp too old');
+        socket.send(JSON.stringify({
+          event_name: 'host_init_rejected',
+          reason: 'Timestamp expired'
+        }));
+        return;
+      }
+
+      const oldHostClient = this.hostClient;
+      this.hostClient = socket;
+
+      if (oldHostClient && oldHostClient !== socket) {
+        this.logger.info('Replacing existing host client connection');
+        oldHostClient.close();
+      }
+
+      this.logger.success('Host client authenticated and registered');
+
+      socket.send(JSON.stringify({
+        event_name: 'host_init_ack'
+      }));
+    } catch (error) {
+      this.logger.error(`Failed to verify host init: ${(error as Error).message}`);
+      socket.send(JSON.stringify({
+        event_name: 'host_init_rejected',
+        reason: 'Verification failed'
+      }));
+    }
+  }
+
+  private async sendToHost<K extends ForwardableEvents>(
+    request: WebSocketInboundRequest<K>
+  ): Promise<EventPayloadMap[K]> {
+    if (!this.hostClient || this.hostClient.readyState !== WebSocket.OPEN) {
+      throw new Error('Host client not available');
+    }
+
+    return await new Promise<EventPayloadMap[K]>((resolve, reject) => {
+      const requestUuid = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+
+      const timeout = setTimeout(() => {
+        this.pendingHostRequests.delete(requestUuid);
+        reject(new Error('Host request timeout (10s)'));
+      }, 10000);
+
+      this.pendingHostRequests.set(requestUuid, {
+        resolve,
+        reject,
+        timeout
+      });
+
+      const forwardMessage: HostForwardRequest<K> = {
+        event_name: 'host_forward',
+        request_uuid: requestUuid,
+        workspace_dir: this.config.getConfig().workingDirectory,
+        wrapped_request: request
+      };
+
+      this.hostClient!.send(JSON.stringify(forwardMessage));
+      this.logger.debug(`Forwarded ${request.event_name} to host client (uuid: ${requestUuid})`);
+    });
+  }
+
+  private handleHostResponse<K extends ForwardableEvents>(
+    message: HostResponseMessage<K>
+  ): void {
+    const pending = this.pendingHostRequests.get(message.request_uuid);
+
+    if (!pending) {
+      this.logger.warn(`Received host response for unknown request: ${message.request_uuid}`);
+      return;
+    }
+
+    clearTimeout(pending.timeout);
+    this.pendingHostRequests.delete(message.request_uuid);
+
+    pending.resolve(message.wrapped_response.payload);
+    this.logger.debug(`Completed host request ${message.request_uuid}`);
   }
 
   private serializeResponseMessage<
@@ -685,7 +935,7 @@ export class WebSocketService {
     return JSON.stringify(msg);
   }
 
-  private handleKeyRegistered (message: WebSocketInitMessage, socket: WebSocket): void {
+  private handleKeyRegistered (message: { event_name: 'key_registered', uuid: string, [key: string]: any }, socket: WebSocket): void {
     if (!message.uuid) {
       this.logger.error('Key registered event missing UUID');
       return;
@@ -739,6 +989,10 @@ export class WebSocketService {
 
   getClientCount (): number {
     return this.clients.size;
+  }
+
+  hasHostClient (): boolean {
+    return this.hostClient !== null && this.hostClient.readyState === WebSocket.OPEN;
   }
 
   getCurrentKeyStatus (): {
