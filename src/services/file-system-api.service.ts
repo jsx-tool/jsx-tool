@@ -1,7 +1,7 @@
 import 'reflect-metadata';
 import { injectable, singleton, inject } from 'tsyringe';
 import type { FSWatcher, Stats } from 'fs';
-import { readFileSync, writeFileSync, existsSync, readdirSync, statSync, watch, mkdirSync, unlinkSync } from 'fs';
+import { readFileSync, writeFileSync, existsSync, readdirSync, statSync, watch, mkdirSync, unlinkSync, copyFileSync, renameSync, rmdirSync } from 'fs';
 import { resolve, join, relative, extname, dirname } from 'path';
 import * as path from 'path';
 import { ConfigService } from './config.service';
@@ -95,6 +95,37 @@ export interface GitStatusResult {
 export interface FileChangeEvent {
   type: 'added' | 'removed' | 'changed'
   absolutePath: string
+}
+
+export interface MoveItemsArgs {
+  sourcePaths: string[]
+  targetDirectory: string
+}
+
+export interface MoveItemsResult {
+  success: boolean
+  movedPaths?: Array<{ from: string, to: string }>
+  errors?: string[]
+}
+
+export interface CopyToClipboardArgs {
+  paths: string[]
+}
+
+export interface CopyToClipboardResult {
+  success: boolean
+  error?: string
+}
+
+export interface ImportItemsArgs {
+  sourcePaths: string[]
+  targetDirectory: string
+}
+
+export interface ImportItemsResult {
+  success: boolean
+  importedPaths?: string[]
+  errors?: string[]
 }
 
 @singleton()
@@ -813,6 +844,310 @@ export class FileSystemApiService {
         statusInfo: null,
         error: `Error reading git status: ${(error as Error).message}`
       };
+    }
+  }
+
+  moveItems (sourcePaths: string[], targetDirectory: string): MoveItemsResult {
+    try {
+      const absTarget = resolve(targetDirectory);
+
+      const targetCheck = this.isPathSafe(absTarget);
+      if (!targetCheck.safe) {
+        return { success: false, errors: targetCheck.reason ? [targetCheck.reason] : [] };
+      }
+
+      if (!existsSync(absTarget) || !statSync(absTarget).isDirectory()) {
+        return { success: false, errors: ['Target must be an existing directory'] };
+      }
+
+      const movedPaths: Array<{ from: string, to: string }> = [];
+      const errors: string[] = [];
+
+      for (const sourcePath of sourcePaths) {
+        const absSource = resolve(sourcePath);
+
+        if (!existsSync(absSource)) {
+          errors.push(`Source not found: ${absSource}`);
+          continue;
+        }
+
+        const sourceCheck = this.isPathSafe(absSource);
+        if (!sourceCheck.safe) {
+          errors.push(`Cannot move ${absSource}: ${sourceCheck.reason}`);
+          continue;
+        }
+
+        const itemName = absSource.split(path.sep).pop()!;
+        const targetPath = join(absTarget, itemName);
+
+        if (existsSync(targetPath)) {
+          errors.push(`Target already exists: ${targetPath}`);
+          continue;
+        }
+
+        const targetPathCheck = this.isPathSafe(targetPath);
+        if (!targetPathCheck.safe) {
+          errors.push(`Cannot move to ${targetPath}: ${targetPathCheck.reason}`);
+          continue;
+        }
+
+        try {
+          renameSync(absSource, targetPath);
+          movedPaths.push({ from: absSource, to: targetPath });
+        } catch (error) {
+          const errorMsg = (error as Error).message;
+
+          if (errorMsg.includes('EXDEV') || errorMsg.includes('cross-device')) {
+            try {
+              const stats = statSync(absSource);
+
+              if (stats.isDirectory()) {
+                this.copyDirectoryRecursive(absSource, targetPath);
+                this.removeDirectoryRecursive(absSource);
+              } else {
+                copyFileSync(absSource, targetPath);
+                unlinkSync(absSource);
+              }
+
+              movedPaths.push({ from: absSource, to: targetPath });
+            } catch (fallbackError) {
+              errors.push(`Failed to move ${itemName}: ${(fallbackError as Error).message}`);
+            }
+          } else {
+            errors.push(`Failed to move ${itemName}: ${errorMsg}`);
+          }
+        }
+      }
+
+      return {
+        success: errors.length === 0,
+        movedPaths: movedPaths.length > 0 ? movedPaths : undefined,
+        errors: errors.length > 0 ? errors : undefined
+      };
+    } catch (error) {
+      return {
+        success: false,
+        errors: [`Move failed: ${(error as Error).message}`]
+      };
+    }
+  }
+
+  moveItemsMany (args: MoveItemsArgs[]): MoveItemsResult[] {
+    return args.map(({ sourcePaths, targetDirectory }) =>
+      this.moveItems(sourcePaths, targetDirectory)
+    );
+  }
+
+  private removeDirectoryRecursive (dirPath: string): void {
+    if (!existsSync(dirPath)) return;
+
+    const entries = readdirSync(dirPath);
+
+    for (const entry of entries) {
+      const entryPath = join(dirPath, entry);
+      const stats = statSync(entryPath);
+
+      if (stats.isDirectory()) {
+        this.removeDirectoryRecursive(entryPath);
+      } else {
+        unlinkSync(entryPath);
+      }
+    }
+
+    rmdirSync(dirPath);
+  }
+
+  copyToClipboard (paths: string[]): CopyToClipboardResult {
+    try {
+      for (const path of paths) {
+        const absolutePath = resolve(path);
+        if (!existsSync(absolutePath)) {
+          return { success: false, error: `Path not found: ${absolutePath}` };
+        }
+
+        const check = this.isPathSafe(absolutePath);
+        if (!check.safe) {
+          return { success: false, error: check.reason };
+        }
+      }
+
+      const absolutePaths = paths.map(p => resolve(p));
+
+      if (process.platform === 'darwin') {
+        this.copyFilesToClipboardMacOS(absolutePaths);
+      } else if (process.platform === 'win32') {
+        this.copyFilesToClipboardWindows(absolutePaths);
+      } else if (process.platform === 'linux') {
+        this.copyFilesToClipboardLinux(absolutePaths);
+      } else {
+        return {
+          success: false,
+          error: `File clipboard not supported on platform: ${process.platform}`
+        };
+      }
+
+      return { success: true };
+    } catch (error) {
+      return {
+        success: false,
+        error: `Error copying to clipboard: ${(error as Error).message}`
+      };
+    }
+  }
+
+  copyToClipboardMany (args: CopyToClipboardArgs[]): CopyToClipboardResult[] {
+    return args.map(({ paths }) => this.copyToClipboard(paths));
+  }
+
+  private copyFilesToClipboardMacOS (paths: string[]): void {
+    const escapedPaths = paths.map(p =>
+      p.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
+    );
+
+    const posixPaths = escapedPaths
+      .map(p => `POSIX file "${p}"`)
+      .join(', ');
+
+    const script = `set the clipboard to {${posixPaths}}`;
+
+    execSync(`osascript -e '${script.replace(/'/g, "'\\''")}'`, {
+      stdio: 'pipe',
+      windowsHide: true
+    });
+  }
+
+  private copyFilesToClipboardWindows (paths: string[]): void {
+    const escapedPaths = paths.map(p =>
+      p.replace(/\\/g, '\\\\').replace(/"/g, '`"')
+    );
+
+    const pathList = escapedPaths.map(p => `"${p}"`).join(',');
+
+    const script = `
+    Add-Type -AssemblyName System.Windows.Forms
+    $files = New-Object System.Collections.Specialized.StringCollection
+    @(${pathList}) | ForEach-Object { $files.Add($_) | Out-Null }
+    [System.Windows.Forms.Clipboard]::SetFileDropList($files)
+  `;
+
+    execSync(`powershell -NoProfile -Command "${script.replace(/"/g, '\\"')}"`, {
+      stdio: 'pipe',
+      windowsHide: true,
+      shell: 'powershell.exe'
+    });
+  }
+
+  private copyFilesToClipboardLinux (paths: string[]): void {
+    const fileUris = paths.map(p => `file://${encodeURI(p)}`).join('\n');
+
+    try {
+      execSync('which xclip', { stdio: 'pipe' });
+
+      const script = `printf '%s' '${fileUris.replace(/'/g, "'\\''")}' | xclip -selection clipboard -t text/uri-list`;
+      execSync(script, {
+        shell: '/bin/bash',
+        stdio: 'pipe'
+      });
+    } catch {
+      try {
+        execSync('which xsel', { stdio: 'pipe' });
+
+        const script = `printf '%s' '${fileUris.replace(/'/g, "'\\''")}' | xsel --clipboard --input`;
+        execSync(script, {
+          shell: '/bin/bash',
+          stdio: 'pipe'
+        });
+      } catch {
+        throw new Error('xclip or xsel required for clipboard on Linux');
+      }
+    }
+  }
+
+  importItems (sourcePaths: string[], targetDirectory: string): ImportItemsResult {
+    try {
+      const absTarget = resolve(targetDirectory);
+
+      const targetCheck = this.isPathSafe(absTarget);
+      if (!targetCheck.safe) {
+        return { success: false, errors: targetCheck.reason ? [targetCheck.reason] : [] };
+      }
+
+      if (!existsSync(absTarget) || !statSync(absTarget).isDirectory()) {
+        return { success: false, errors: ['Target must be an existing directory'] };
+      }
+
+      const importedPaths: string[] = [];
+      const errors: string[] = [];
+
+      for (const sourcePath of sourcePaths) {
+        const absSource = resolve(sourcePath);
+
+        if (!existsSync(absSource)) {
+          errors.push(`Source not found: ${absSource}`);
+          continue;
+        }
+
+        const stats = statSync(absSource);
+        const itemName = absSource.split(path.sep).pop()!;
+        const targetPath = join(absTarget, itemName);
+
+        try {
+          if (stats.isDirectory()) {
+            this.copyDirectoryRecursive(absSource, targetPath);
+          } else {
+            const ext = extname(itemName).toLowerCase();
+            if (!this.allowedExtensions.has(ext) && !itemName.startsWith('.')) {
+              errors.push(`File type not allowed: ${itemName}`);
+              continue;
+            }
+
+            copyFileSync(absSource, targetPath);
+          }
+
+          importedPaths.push(targetPath);
+        } catch (error) {
+          errors.push(`Failed to import ${itemName}: ${(error as Error).message}`);
+        }
+      }
+
+      return {
+        success: errors.length === 0,
+        importedPaths,
+        errors: errors.length > 0 ? errors : undefined
+      };
+    } catch (error) {
+      return {
+        success: false,
+        errors: [`Import failed: ${(error as Error).message}`]
+      };
+    }
+  }
+
+  private copyDirectoryRecursive (source: string, target: string): void {
+    if (!existsSync(target)) {
+      mkdirSync(target, { recursive: true });
+    }
+
+    const entries = readdirSync(source);
+
+    for (const entry of entries) {
+      const sourcePath = join(source, entry);
+      const targetPath = join(target, entry);
+
+      try {
+        const stats = statSync(sourcePath);
+
+        if (stats.isDirectory()) {
+          this.copyDirectoryRecursive(sourcePath, targetPath);
+        } else {
+          const ext = extname(entry).toLowerCase();
+          if (this.allowedExtensions.has(ext) || entry.startsWith('.')) {
+            copyFileSync(sourcePath, targetPath);
+          }
+        }
+      } catch (error) {
+        continue;
+      }
     }
   }
 

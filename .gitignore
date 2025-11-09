@@ -3,3 +3,6 @@ dist/
 coverage/
 *.log
 .DS_Store
+
+bin/private-key.pem
+bin/public-key.pem

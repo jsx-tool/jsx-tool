@@ -10,6 +10,7 @@ import packageJson from '../package.json';
 import { resolve, join } from 'path';
 import { existsSync, mkdirSync, writeFileSync } from 'fs';
 import { input, confirm } from '@inquirer/prompts';
+import { LocalKeyService } from './services/local-key.service';
 
 async function main () {
   const program = new Command();
@@ -240,6 +241,214 @@ async function main () {
     });
 
   program
+    .command('host')
+    .description('Start the host client (connects to WebSocket server running in container)')
+    .option('-f, --from <path>', 'working directory', process.cwd())
+    .option('--node-modules-dir <path>', 'node_modules directory (defaults to working directory or auto-detect)')
+    .option('--additional-directories <paths>', 'comma-separated list of additional directories (relative paths from project root) to watch', '')
+    .option('--ws-port <port>', 'WebSocket server port', '12021')
+    .option('--ws-host <host>', 'WebSocket server host', 'localhost')
+    .option('--ws-protocol <protocol>', 'WebSocket protocol (ws|wss)', 'ws')
+    .option('--logging', 'enable logging', false)
+    .option('-d, --debug', 'enable debug logging', false)
+    .action(async (options, cmd: Command) => {
+      const config = container.resolve(ConfigService);
+      const logger = container.resolve(Logger);
+      const workingDirectoryValidationService = container.resolve(WorkingDirectoryValidationService);
+
+      const valueSource = (name: string) => cmd.getOptionValueSource(name as any);
+      const explicit = (name: string) => {
+        const src = valueSource(name);
+        return src === 'cli' || src === 'env';
+      };
+      const has = <T>(v: T | undefined | null): v is T => v !== undefined && v !== null;
+      const toInt = (v: unknown) =>
+        v !== undefined && v !== null ? Number.parseInt(String(v), 10) : undefined;
+
+      const workingDir = options.from as string;
+
+      const autoDetectedNodeModules =
+        workingDirectoryValidationService.findNodeModulesWithPackage(workingDir, 'react') || undefined;
+
+      config.setWorkingDirectory(workingDir);
+      await config.loadFromFile(workingDir);
+      const current = config.getConfig();
+
+      const wsHost =
+        explicit('wsHost')
+          ? options.wsHost as string
+          : has(current.wsHost)
+            ? current.wsHost
+            : (options.wsHost as string);
+
+      const wsProtocol =
+        explicit('wsProtocol')
+          ? options.wsProtocol as 'ws' | 'wss'
+          : has(current.wsProtocol)
+            ? current.wsProtocol
+            : (options.wsProtocol as 'ws' | 'wss');
+
+      const wsPort =
+        explicit('wsPort')
+          ? (toInt(options.wsPort) ?? current.wsPort)
+          : has(current.wsPort)
+            ? current.wsPort
+            : (toInt(options.wsPort)!);
+
+      const debug =
+        explicit('debug')
+          ? Boolean(options.debug)
+          : has(current.debug)
+            ? current.debug
+            : Boolean(options.debug);
+
+      const logging =
+        explicit('logging')
+          ? Boolean(options.logging)
+          : has(current.logging)
+            ? current.logging
+            : Boolean(options.logging);
+
+      const nodeModulesDir =
+        explicit('nodeModulesDir')
+          ? (options.nodeModulesDir as string)
+          : has(current.nodeModulesDir)
+            ? current.nodeModulesDir
+            : (autoDetectedNodeModules ?? workingDir);
+
+      let additionalDirectories: string[];
+      if (explicit('additionalDirectories')) {
+        const raw = options.additionalDirectories as (string | undefined);
+        additionalDirectories = raw
+          ? raw.split(',').map((d) => d.trim()).filter((d) => d.length > 0)
+          : [];
+      } else if (Array.isArray(current.additionalDirectories)) {
+        additionalDirectories = current.additionalDirectories;
+      } else {
+        const raw = options.additionalDirectories as string;
+        additionalDirectories = raw
+          ? raw.split(',').map((d) => d.trim()).filter((d) => d.length > 0)
+          : [];
+      }
+
+      const validation = workingDirectoryValidationService.validateWorkingDirectory(
+        workingDir,
+        nodeModulesDir
+      );
+
+      if (!validation.isValid) {
+        logger.error('Invalid working directory:');
+        validation.errors.forEach(error => { logger.error(`  • ${error}`); });
+
+        if (validation.errors.some(e => e.includes('not installed'))) {
+          logger.info('\nHint: If this is a monorepo, try specifying --node-modules-dir <path>');
+          logger.info('      pointing to the root directory containing node_modules');
+        }
+
+        process.exit(1);
+      }
+
+      const additionalDirectoriesValidation =
+        workingDirectoryValidationService.validateAdditionalDirectories(
+          workingDir,
+          additionalDirectories
+        );
+      if (!additionalDirectoriesValidation.isValid) {
+        logger.error('Invalid additional directories:');
+        additionalDirectoriesValidation.errors.forEach(error => { logger.error(`  • ${error}`); });
+        process.exit(1);
+      }
+
+      config.setNodeModulesDirectory(nodeModulesDir);
+
+      config.setFromCliOptions({
+        wsPort,
+        wsHost,
+        wsProtocol,
+
+        debug,
+        logging,
+
+        nodeModulesDir,
+        additionalDirectories
+      });
+
+      const finalCfg = config.getConfig();
+      logger.setDebug(finalCfg.debug);
+      if (finalCfg.logging || finalCfg.debug) {
+        logger.setSilence(false);
+      } else {
+        logger.setSilence(true);
+      }
+
+      const localKeyService = container.resolve(LocalKeyService);
+      if (!localKeyService.hasKeys()) {
+        const success = localKeyService.regenerateKeyPair(true);
+        if (success) {
+          console.log(pc.green('\n✨ Key pair generated successfully!\n'));
+        }
+      }
+
+      const app = container.resolve(Application);
+      await app.startHost();
+    });
+
+  program
+    .command('generate-keys')
+    .description('Generate or regenerate ECDSA key pair for host client authentication')
+    .option('-f, --from <path>', 'working directory', process.cwd())
+    .option('--force', 'force regeneration even if keys already exist', false)
+    .action(async (options) => {
+      const config = container.resolve(ConfigService);
+      const logger = container.resolve(Logger);
+
+      logger.setSilence(false);
+
+      const workingDir = options.from as string;
+      config.setWorkingDirectory(workingDir);
+
+      const localKeyService = container.resolve(LocalKeyService);
+      const force = Boolean(options.force);
+
+      if (localKeyService.hasKeys() && !force) {
+        const paths = localKeyService.getKeyPaths();
+        console.log(pc.yellow('\n⚠️  Key pair already exists:'));
+        console.log(pc.gray(`   Private key: ${paths.privateKeyPath}`));
+        console.log(pc.gray(`   Public key:  ${paths.publicKeyPath}`));
+        console.log(pc.cyan('\nTo regenerate keys, use: jsx-tool generate-keys --force\n'));
+        process.exit(0);
+      }
+
+      const success = localKeyService.regenerateKeyPair(force);
+
+      if (success) {
+        const paths = localKeyService.getKeyPaths();
+        console.log(pc.green('\n✨ Key pair generated successfully!\n'));
+        console.log(pc.gray('Location:'));
+        console.log(pc.gray(`  Private key: ${paths.privateKeyPath}`));
+        console.log(pc.gray(`  Public key:  ${paths.publicKeyPath}\n`));
+
+        const publicKeyDer = localKeyService.getPublicKeyDer();
+        if (publicKeyDer) {
+          console.log(pc.cyan('Public Key (Base64):'));
+          console.log(pc.gray(publicKeyDer));
+          console.log();
+        }
+
+        console.log(pc.cyan('Next steps:'));
+        console.log(pc.gray('  • These keys are used for host client authentication'));
+        console.log(pc.gray('  • Keys are stored in .jsxtool/host-keys/ directory'));
+        console.log(pc.gray('  • The host-keys directory has a .gitignore to prevent committing keys'));
+        console.log(pc.gray('  • In Docker setups, mount the project directory as a volume'));
+        console.log(pc.gray('  • Example: docker run -v $(pwd):/app my-image\n'));
+        process.exit(0);
+      } else {
+        console.log(pc.red('\n❌ Failed to generate key pair\n'));
+        process.exit(1);
+      }
+    });
+
+  program
     .command('init')
     .description('Initialize jsx-tool configuration')
     .option('-f, --from <path>', 'working directory', process.cwd())
@@ -286,6 +495,7 @@ async function main () {
           console.log(pc.cyan('Next steps:'));
           console.log(pc.gray('  • Edit rules.md to add custom prompt rules'));
           console.log(pc.gray('  • Ensure @jsx-tool/vite-plugin is configured in vite.config.ts'));
+          console.log(pc.gray('  • Run "jsx-tool generate-keys" to create host authentication keys (if using Docker)'));
           console.log(pc.gray('  • Run "jsx-tool start" to start the dev server\n'));
         } else {
           const serverPort = await input({
@@ -366,6 +576,7 @@ async function main () {
 
           console.log(pc.cyan('Next steps:'));
           console.log(pc.gray('  • Edit rules.md to add custom prompt rules'));
+          console.log(pc.gray('  • Run "jsx-tool generate-keys" to create host authentication keys (if using Docker)'));
           console.log(pc.gray('  • Run "jsx-tool start" to start the dev server\n'));
         }
 

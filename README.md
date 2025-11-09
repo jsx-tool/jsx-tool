@@ -285,3 +285,11 @@ See the [jsx-tool-examples repository](https://github.com/jsx-tool/jsx-tool-exam
 ## Documentation
 
 For complete documentation, visit [jsxtool.com/docs/dev-server](https://jsxtool.com/docs/dev-server)
+
+## Linux Clipboard Support
+
+# Ubuntu/Debian
+sudo apt-get install xclip
+
+# Fedora/RHEL
+sudo dnf install xclip
