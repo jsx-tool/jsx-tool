@@ -161,19 +161,99 @@ export class HostClientService {
   }
 
   private translatePathToHost (devServerPath: string, devServerWorkingDir: string, hostWorkingDir: string): string {
-    if (devServerPath.startsWith(devServerWorkingDir)) {
-      const relativePath = devServerPath.substring(devServerWorkingDir.length);
-      return hostWorkingDir + relativePath;
+    const normalizeSlashes = (p: string) => p.replace(/\\/g, '/');
+
+    let devPath = normalizeSlashes(devServerPath);
+    let devWorkingDir = normalizeSlashes(devServerWorkingDir);
+    let hostWorkDir = normalizeSlashes(hostWorkingDir);
+
+    if (devWorkingDir.endsWith('/')) {
+      devWorkingDir = devWorkingDir.slice(0, -1);
     }
-    return devServerPath;
+    if (hostWorkDir.endsWith('/')) {
+      hostWorkDir = hostWorkDir.slice(0, -1);
+    }
+
+    if (devPath.includes('/../') || devPath.includes('/./')) {
+      const parts = devPath.split('/');
+      const resolved: string[] = [];
+
+      for (const part of parts) {
+        if (part === '..') {
+          resolved.pop();
+        } else if (part !== '.' && part !== '') {
+          resolved.push(part);
+        } else if (part === '' && resolved.length === 0) {
+          resolved.push('');
+        }
+      }
+
+      devPath = resolved.join('/');
+      if (!devPath.startsWith('/') && devServerPath.startsWith('/')) {
+        devPath = '/' + devPath;
+      }
+    }
+
+    if (!devPath.startsWith(devWorkingDir)) {
+      return devPath;
+    }
+
+    const relativePath = devPath.slice(devWorkingDir.length);
+    const cleanRelativePath = relativePath.startsWith('/') ? relativePath.slice(1) : relativePath;
+
+    if (!cleanRelativePath) {
+      return hostWorkDir;
+    }
+
+    return hostWorkDir + '/' + cleanRelativePath;
   }
 
   private translatePathToDevServer (hostPath: string, devServerWorkingDir: string, hostWorkingDir: string): string {
-    if (hostPath.startsWith(hostWorkingDir)) {
-      const relativePath = hostPath.substring(hostWorkingDir.length);
-      return devServerWorkingDir + relativePath;
+    const normalizeSlashes = (p: string) => p.replace(/\\/g, '/');
+
+    let hostPathNorm = normalizeSlashes(hostPath);
+    let devWorkingDir = normalizeSlashes(devServerWorkingDir);
+    let hostWorkDir = normalizeSlashes(hostWorkingDir);
+
+    if (devWorkingDir.endsWith('/')) {
+      devWorkingDir = devWorkingDir.slice(0, -1);
     }
-    return hostPath;
+    if (hostWorkDir.endsWith('/')) {
+      hostWorkDir = hostWorkDir.slice(0, -1);
+    }
+
+    if (hostPathNorm.includes('/../') || hostPathNorm.includes('/./')) {
+      const parts = hostPathNorm.split('/');
+      const resolved: string[] = [];
+
+      for (const part of parts) {
+        if (part === '..') {
+          resolved.pop();
+        } else if (part !== '.' && part !== '') {
+          resolved.push(part);
+        } else if (part === '' && resolved.length === 0) {
+          resolved.push('');
+        }
+      }
+
+      hostPathNorm = resolved.join('/');
+      if (!hostPathNorm.startsWith('/') && hostPath.startsWith('/')) {
+        hostPathNorm = '/' + hostPathNorm;
+      }
+    }
+
+    if (!hostPathNorm.startsWith(hostWorkDir)) {
+      return hostPathNorm;
+    }
+
+    const relativePath = hostPathNorm.slice(hostWorkDir.length);
+    const cleanRelativePath = relativePath.startsWith('/') ? relativePath.slice(1) : relativePath;
+
+    if (!cleanRelativePath) {
+      return devWorkingDir;
+    }
+
+    return devWorkingDir + '/' + cleanRelativePath;
   }
 
   private translateRequestParams<K extends ForwardableEvents>(
@@ -211,8 +291,8 @@ export class HostClientService {
       } as RequestParamMap[K];
     }
 
-        eventName satisfies never;
-        return params;
+    eventName satisfies never;
+    return params;
   }
 
   private translateResponsePayload<K extends ForwardableEvents>(
@@ -267,16 +347,16 @@ export class HostClientService {
       } as EventPayloadMap[K];
     }
 
-        eventName satisfies never;
-        return payload;
+    eventName satisfies never;
+    return payload;
   }
 
   private async handleHostForward<K extends ForwardableEvents>(
     message: HostForwardRequest<K>
   ): Promise<void> {
     this.logger.debug(
-            `Handling forwarded request: ${message.wrapped_request.event_name} ` +
-            `(dev workspace: ${message.workspace_dir})`
+      `Handling forwarded request: ${message.wrapped_request.event_name} ` +
+      `(dev workspace: ${message.workspace_dir}, host workspace: ${this.config.getConfig().workingDirectory})`
     );
 
     const hostWorkingDir = this.config.getConfig().workingDirectory;
