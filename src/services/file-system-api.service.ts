@@ -725,6 +725,7 @@ export class FileSystemApiService {
         resolve(workingDir, dir)
       );
       const allRoots = [workingDir, ...additionalDirs];
+
       try {
         execSync('git --version', {
           stdio: 'pipe',
@@ -737,18 +738,22 @@ export class FileSystemApiService {
           error: 'Git is not installed or not in PATH'
         };
       }
+
+      let gitRoot: string;
       try {
-        execSync('git rev-parse --git-dir', {
+        gitRoot = execSync('git rev-parse --show-toplevel', {
           cwd: workingDir,
+          encoding: 'utf8',
           stdio: 'pipe',
           windowsHide: true
-        });
+        }).trim();
       } catch {
         return {
           isGitRepo: false,
           statusInfo: null
         };
       }
+
       let branch: string | null = null;
       try {
         branch = execSync('git rev-parse --abbrev-ref HEAD', {
@@ -760,6 +765,7 @@ export class FileSystemApiService {
       } catch {
         branch = null;
       }
+
       let headCommit: string | null = null;
       try {
         headCommit = execSync('git rev-parse HEAD', {
@@ -790,28 +796,37 @@ export class FileSystemApiService {
         stdio: 'pipe',
         windowsHide: true
       });
+
       const files: GitFileStatus[] = [];
       const lines = statusOutput.split('\n').filter(line => line.trim());
+
       for (const line of lines) {
         if (line.length < 4) continue;
+
         const indexStatus = line[0];
         const workTreeStatus = line[1];
         const filePath = line.substring(3).trim();
+
         let actualPath = filePath;
         if (filePath.includes(' -> ')) {
           actualPath = filePath.split(' -> ')[1];
         }
+
         if (actualPath.startsWith('"') && actualPath.endsWith('"')) {
           actualPath = actualPath.slice(1, -1);
         }
-        const absolutePath = resolve(workingDir, actualPath);
+
+        const absolutePath = resolve(gitRoot, actualPath);
+
         const isInAllowedRoot = allRoots.some(root => {
           const rel = relative(root, absolutePath);
           return !rel.startsWith('..') && !path.isAbsolute(rel);
         });
+
         if (!isInAllowedRoot) {
           continue;
         }
+
         const staged = indexStatus !== ' ' && indexStatus !== '?';
         let status: string;
         if (indexStatus === '?' && workTreeStatus === '?') {
@@ -823,12 +838,14 @@ export class FileSystemApiService {
         } else {
           status = workTreeStatus;
         }
+
         files.push({
           absolutePath,
           staged,
           status
         });
       }
+
       return {
         isGitRepo: true,
         statusInfo: {
