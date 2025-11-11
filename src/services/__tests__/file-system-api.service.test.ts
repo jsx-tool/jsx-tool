@@ -670,7 +670,7 @@ describe('FileSystemApiService', () => {
         isFile: () => true,
         isDirectory: () => false
       });
-      (fs.unlinkSync as jest.Mock).mockImplementation(() => {});
+      (fs.unlinkSync as jest.Mock).mockImplementation(() => { });
 
       const results = service.rmMany([
         { path: 'src/file1.js' },
@@ -691,7 +691,7 @@ describe('FileSystemApiService', () => {
         isFile: () => true,
         isDirectory: () => false
       });
-      (fs.unlinkSync as jest.Mock).mockImplementation(() => {});
+      (fs.unlinkSync as jest.Mock).mockImplementation(() => { });
 
       const results = service.rmMany([
         { path: 'src/exists.js' },
@@ -1017,7 +1017,7 @@ describe('FileSystemApiService', () => {
     it('should return git status for a valid repository', () => {
       (execSync as jest.Mock)
         .mockReturnValueOnce('git version 2.39.0')
-        .mockReturnValueOnce('/project/root/.git\n')
+        .mockReturnValueOnce('/project/root\n')
         .mockReturnValueOnce('main\n')
         .mockReturnValueOnce('abc123def456\n')
         .mockReturnValueOnce('Initial commit\n')
@@ -1035,7 +1035,7 @@ describe('FileSystemApiService', () => {
     it('should correctly identify staged files', () => {
       (execSync as jest.Mock)
         .mockReturnValueOnce('git version 2.39.0')
-        .mockReturnValueOnce('/project/root/.git\n')
+        .mockReturnValueOnce('/project/root\n')
         .mockReturnValueOnce('main\n')
         .mockReturnValueOnce('abc123def456\n')
         .mockReturnValueOnce('Initial commit\n')
@@ -1061,7 +1061,7 @@ describe('FileSystemApiService', () => {
     it('should handle untracked files correctly', () => {
       (execSync as jest.Mock)
         .mockReturnValueOnce('git version 2.39.0')
-        .mockReturnValueOnce('/project/root/.git\n')
+        .mockReturnValueOnce('/project/root\n')
         .mockReturnValueOnce('main\n')
         .mockReturnValueOnce('abc123def456\n')
         .mockReturnValueOnce('Initial commit\n')
@@ -1079,7 +1079,7 @@ describe('FileSystemApiService', () => {
     it('should handle renamed files', () => {
       (execSync as jest.Mock)
         .mockReturnValueOnce('git version 2.39.0')
-        .mockReturnValueOnce('/project/root/.git\n')
+        .mockReturnValueOnce('/project/root\n')
         .mockReturnValueOnce('main\n')
         .mockReturnValueOnce('abc123def456\n')
         .mockReturnValueOnce('Initial commit\n')
@@ -1096,7 +1096,7 @@ describe('FileSystemApiService', () => {
     it('should filter files outside allowed roots', () => {
       (execSync as jest.Mock)
         .mockReturnValueOnce('git version 2.39.0')
-        .mockReturnValueOnce('/project/root/.git\n')
+        .mockReturnValueOnce('/project/root\n')
         .mockReturnValueOnce('main\n')
         .mockReturnValueOnce('abc123def456\n')
         .mockReturnValueOnce('Initial commit\n')
@@ -1116,7 +1116,7 @@ describe('FileSystemApiService', () => {
 
       (execSync as jest.Mock)
         .mockReturnValueOnce('git version 2.39.0')
-        .mockReturnValueOnce('/project/root/.git\n')
+        .mockReturnValueOnce('/project/root\n')
         .mockReturnValueOnce('main\n')
         .mockReturnValueOnce('abc123def456\n')
         .mockReturnValueOnce('Initial commit\n')
@@ -1134,7 +1134,7 @@ describe('FileSystemApiService', () => {
     it('should handle empty repository (no commits)', () => {
       (execSync as jest.Mock)
         .mockReturnValueOnce('git version 2.39.0')
-        .mockReturnValueOnce('/project/root/.git\n')
+        .mockReturnValueOnce('/project/root\n')
         .mockImplementationOnce(() => {
           throw new Error('fatal: ambiguous argument HEAD');
         })
@@ -1155,7 +1155,7 @@ describe('FileSystemApiService', () => {
     it('should handle files with special characters in names', () => {
       (execSync as jest.Mock)
         .mockReturnValueOnce('git version 2.39.0')
-        .mockReturnValueOnce('/project/root/.git\n')
+        .mockReturnValueOnce('/project/root\n')
         .mockReturnValueOnce('main\n')
         .mockReturnValueOnce('abc123def456\n')
         .mockReturnValueOnce('Initial commit\n')
@@ -1174,7 +1174,7 @@ describe('FileSystemApiService', () => {
     it('should handle different file status codes', () => {
       (execSync as jest.Mock)
         .mockReturnValueOnce('git version 2.39.0')
-        .mockReturnValueOnce('/project/root/.git\n')
+        .mockReturnValueOnce('/project/root\n')
         .mockReturnValueOnce('main\n')
         .mockReturnValueOnce('abc123def456\n')
         .mockReturnValueOnce('Initial commit\n')
@@ -1204,7 +1204,7 @@ describe('FileSystemApiService', () => {
     it('should handle different branch names', () => {
       (execSync as jest.Mock)
         .mockReturnValueOnce('git version 2.39.0')
-        .mockReturnValueOnce('/project/root/.git\n')
+        .mockReturnValueOnce('/project/root\n')
         .mockReturnValueOnce('feature/awesome-feature\n')
         .mockReturnValueOnce('def789ghi012\n')
         .mockReturnValueOnce('Initial commit\n')
@@ -1220,7 +1220,7 @@ describe('FileSystemApiService', () => {
     it('should handle git command execution errors', () => {
       (execSync as jest.Mock)
         .mockReturnValueOnce('git version 2.39.0')
-        .mockReturnValueOnce('/project/root/.git\n')
+        .mockReturnValueOnce('/project/root\n')
         .mockReturnValueOnce('main\n')
         .mockReturnValueOnce('abc123def456\n')
         .mockReturnValueOnce('Initial commit\n')
@@ -1238,7 +1238,7 @@ describe('FileSystemApiService', () => {
     it('should handle detached HEAD state', () => {
       (execSync as jest.Mock)
         .mockReturnValueOnce('git version 2.39.0')
-        .mockReturnValueOnce('/project/root/.git\n')
+        .mockReturnValueOnce('/project/root\n')
         .mockReturnValueOnce('HEAD\n')
         .mockReturnValueOnce('abc123def456\n')
         .mockReturnValueOnce('Initial commit\n')
