@@ -173,7 +173,6 @@ export class FileSystemApiService {
 
     for (const root of this.dedupeRoots(cwd, roots, additionalDirectories)) {
       if (!existsSync(root)) {
-        console.warn(`Skipping watch on non-existent directory: ${root}`);
         continue;
       }
 
