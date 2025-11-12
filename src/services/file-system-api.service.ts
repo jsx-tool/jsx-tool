@@ -172,6 +172,11 @@ export class FileSystemApiService {
     let debounceTimer: NodeJS.Timeout | null = null;
 
     for (const root of this.dedupeRoots(cwd, roots, additionalDirectories)) {
+      if (!existsSync(root)) {
+        console.warn(`Skipping watch on non-existent directory: ${root}`);
+        continue;
+      }
+
       const w = watch(root, { recursive: true }, (eventType, filename) => {
         if (!filename) return;
         const absolutePath = join(root, filename);
@@ -188,7 +193,6 @@ export class FileSystemApiService {
         }
 
         if (debounceTimer) clearTimeout(debounceTimer);
-
         debounceTimer = setTimeout(() => {
           const changes = Array.from(pendingChanges.values());
           if (changes.length > 0) {
@@ -197,6 +201,15 @@ export class FileSystemApiService {
           }
           debounceTimer = null;
         }, 100);
+      });
+
+      w.on('error', (error: NodeJS.ErrnoException) => {
+        console.error(`File watcher error for ${root}:`, error.message);
+        w.close();
+        const index = this.watchers.indexOf(w);
+        if (index > -1) {
+          this.watchers.splice(index, 1);
+        }
       });
 
       this.watchers.push(w);
