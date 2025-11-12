@@ -24,7 +24,6 @@ process.on('message', async (message: any) => {
 
       case 'initialize':
         if (!isInitialized) {
-          logger.error('Worker not initialized - call init_worker first');
           process.send!({
             type: 'error',
             requestId: message.requestId,
@@ -133,6 +132,7 @@ async function initializeWorker (config: Partial<JSXToolConfig>): Promise<void> 
 
   logger = container.resolve(Logger);
   logger.setDebug(config.debug ?? false);
+  logger.setService('lsp-worker');
   if (config.logging || config.debug) {
     logger.setSilence(false);
   } else {
