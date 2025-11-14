@@ -57,6 +57,7 @@
   "license": "MIT",
   "dependencies": {
     "@inquirer/prompts": "^7.10.1",
+    "@inquirer/external-editor": "1.0.3",
     "@tailwindcss/language-service": "^0.14.29",
     "@vscode/ripgrep": "^1.17.0",
     "commander": "^14.0.0",
