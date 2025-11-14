@@ -118,7 +118,17 @@ process.on('message', async (message: any) => {
 });
 
 async function initializeWorker (config: Partial<JSXToolConfig>): Promise<void> {
+  logger = container.resolve(Logger);
+  logger.setDebug(config.debug ?? false);
+  logger.setService('lsp-worker');
+  if (config.logging || config.debug) {
+    logger.setSilence(false);
+  } else {
+    logger.setSilence(true);
+  }
+
   const configService = container.resolve(ConfigService);
+
   if (config.workingDirectory) {
     configService.setWorkingDirectory(config.workingDirectory);
   }
@@ -129,15 +139,6 @@ async function initializeWorker (config: Partial<JSXToolConfig>): Promise<void> 
   await configService.loadFromFile(config.workingDirectory);
 
   configService.setFromCliOptions(config);
-
-  logger = container.resolve(Logger);
-  logger.setDebug(config.debug ?? false);
-  logger.setService('lsp-worker');
-  if (config.logging || config.debug) {
-    logger.setSilence(false);
-  } else {
-    logger.setSilence(true);
-  }
 
   lspService = container.resolve(LspService);
   diagnosticChecker = container.resolve(DiagnosticCheckerService);
