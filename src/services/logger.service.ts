@@ -14,9 +14,14 @@ export interface ILogger {
 export class Logger implements ILogger {
   private debugEnabled = false;
   private silence = false;
+  private service: string = 'jsx-tool';
 
   setDebug (enabled: boolean): void {
     this.debugEnabled = enabled;
+  }
+
+  setService (service: string): void {
+    this.service = service;
   }
 
   setSilence (silence: boolean): void {
@@ -27,28 +32,28 @@ export class Logger implements ILogger {
     if (this.silence) {
       return;
     }
-    console.log(pc.blue('[jsx-tool]'), message);
+    console.log(pc.blue(`[${this.service}]`), message);
   }
 
   error (message: string): void {
     if (this.silence) {
       return;
     }
-    console.error(pc.red('[jsx-tool]'), message);
+    console.error(pc.red(`[${this.service}]`), message);
   }
 
   warn (message: string): void {
     if (this.silence) {
       return;
     }
-    console.warn(pc.yellow('[jsx-tool]'), message);
+    console.warn(pc.yellow(`[${this.service}]`), message);
   }
 
   success (message: string): void {
     if (this.silence) {
       return;
     }
-    console.log(pc.green('[jsx-tool]'), message);
+    console.log(pc.green(`[${this.service}]`), message);
   }
 
   debug (message: string): void {
@@ -56,7 +61,7 @@ export class Logger implements ILogger {
       return;
     }
     if (this.debugEnabled) {
-      console.log(pc.gray('[jsx-tool]'), pc.gray(message));
+      console.log(pc.gray(`[${this.service}]`), pc.gray(message));
     }
   }
 }

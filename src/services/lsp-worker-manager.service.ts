@@ -41,17 +41,37 @@ export class LspWorkerManagerService {
 
     const workerPath = join(__dirname, '../workers/lsp-worker.js');
 
+    const workerEnv = {
+      ...process.env,
+      FORCE_COLOR: '1',
+      ...(process.stdout.isTTY ? { TERM: process.env.TERM || 'xterm-256color' } : {})
+    };
+
     this.worker = fork(workerPath, [], {
       stdio: ['pipe', 'pipe', 'pipe', 'ipc'],
-      env: process.env
+      env: workerEnv
     });
+
+    if (this.worker.stdout) {
+      this.worker.stdout.on('data', (data: Buffer) => {
+        const output = data.toString();
+        output && console.log(output.trim());
+      });
+    }
+
+    if (this.worker.stderr) {
+      this.worker.stderr.on('data', (data: Buffer) => {
+        const output = data.toString();
+        output && console.error(output);
+      });
+    }
 
     this.worker.on('message', (message: any) => {
       this.handleWorkerMessage(message);
     });
 
     this.worker.on('error', (error) => {
-      this.logger.error(`LSP worker error: ${error.message}`);
+      console.log(error.message);
       this.restart();
     });
 
