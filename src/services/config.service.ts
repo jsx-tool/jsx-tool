@@ -1,6 +1,6 @@
 import { injectable, singleton } from 'tsyringe';
 import { resolve, join } from 'path';
-import { existsSync, readFileSync } from 'fs';
+import { existsSync, readFileSync, mkdirSync, writeFileSync } from 'fs';
 import type { JSXToolConfig } from '../types/config';
 import { DEFAULT_CONFIG } from '../types/config';
 import pc from 'picocolors';
@@ -10,9 +10,10 @@ import pc from 'picocolors';
 export class ConfigService {
   private config: JSXToolConfig = { ...DEFAULT_CONFIG };
   private promptRulesPath?: string;
+  private terminalSecretPath!: string;
   public shouldModifyNextObjectCounter: boolean = false;
   public isViteInstallation: boolean = false;
-  public fullReload: () => void = () => {};
+  public fullReload: () => void = () => { };
 
   constructor () {
     this.loadFromEnvironment();
@@ -43,6 +44,7 @@ export class ConfigService {
     const configPath = join(configDirPath, 'config.json');
     const promptRules = join(configDirPath, 'rules.md');
     this.promptRulesPath = promptRules;
+    this.terminalSecretPath = join(configDirPath, 'terminal-secret');
 
     if (existsSync(configPath)) {
       try {
@@ -69,6 +71,10 @@ export class ConfigService {
       }
     }
     return null;
+  }
+
+  getTerminalSecretPath () {
+    return this.terminalSecretPath;
   }
 
   setShouldModifyNextObjectCounter (shouldModifyNextObjectCounter: boolean) {
@@ -130,5 +136,42 @@ export class ConfigService {
     }
 
     return { valid: errors.length === 0, errors };
+  }
+
+  ensureGitIgnore (): void {
+    const workingDir = this.config.workingDirectory;
+    if (!workingDir) return;
+
+    const jsxToolDir = join(workingDir, '.jsxtool');
+    if (!existsSync(jsxToolDir)) {
+      mkdirSync(jsxToolDir, { recursive: true });
+    }
+
+    const gitignorePath = join(jsxToolDir, '.gitignore');
+    const requiredEntries = ['host-keys', 'terminal-secret'];
+
+    let content = '';
+    if (existsSync(gitignorePath)) {
+      content = readFileSync(gitignorePath, 'utf8');
+    } else {
+      content = '# Ignore all host authentication keys\n';
+    }
+
+    const lines = content.split('\n').map(line => line.trim());
+    let modified = false;
+
+    requiredEntries.forEach(entry => {
+      if (!lines.includes(entry)) {
+        if (content.length > 0 && !content.endsWith('\n')) {
+          content += '\n';
+        }
+        content += `${entry}\n`;
+        modified = true;
+      }
+    });
+
+    if (modified || !existsSync(gitignorePath)) {
+      writeFileSync(gitignorePath, content, 'utf8');
+    }
   }
 }

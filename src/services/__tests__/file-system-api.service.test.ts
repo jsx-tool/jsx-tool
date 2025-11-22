@@ -83,7 +83,8 @@ describe('FileSystemApiService', () => {
       setWorkingDirectory: jest.fn(),
       loadFromFile: jest.fn(),
       setFromCliOptions: jest.fn(),
-      validate: jest.fn()
+      validate: jest.fn(),
+      getTerminalSecretPath: jest.fn().mockReturnValue(undefined)
     } as any;
 
     container.registerInstance(ConfigService, mockConfigService);

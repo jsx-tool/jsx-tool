@@ -14,19 +14,53 @@ import type {
   RequestParamMap
 } from './websocket.service';
 import { FileSystemApiService } from './file-system-api.service';
+import { TerminalManagerService } from './terminal-manager.service';
 
 const hostForwardHandlers = {
-  get_git_status: (_: RequestParamMap['get_git_status'], api: FileSystemApiService): EventPayloadMap['get_git_status'] => {
+  get_git_status: (_: RequestParamMap['get_git_status'], api: FileSystemApiService, _terminal: TerminalManagerService): EventPayloadMap['get_git_status'] => {
     return api.gitStatus();
   },
-  copy_to_clipboard: (params: RequestParamMap['copy_to_clipboard'], api: FileSystemApiService): EventPayloadMap['copy_to_clipboard'] => {
+  copy_to_clipboard: (params: RequestParamMap['copy_to_clipboard'], api: FileSystemApiService, _terminal: TerminalManagerService): EventPayloadMap['copy_to_clipboard'] => {
     return api.copyToClipboard(params.paths);
   },
-  import_items: (params: RequestParamMap['import_items'], api: FileSystemApiService): EventPayloadMap['import_items'] => {
+  import_items: (params: RequestParamMap['import_items'], api: FileSystemApiService, _terminal: TerminalManagerService): EventPayloadMap['import_items'] => {
     return api.importItems(params.sourcePaths, params.targetDirectory);
+  },
+  set_terminal_secret: (_params: RequestParamMap['set_terminal_secret'], _api: FileSystemApiService, _terminal: TerminalManagerService): EventPayloadMap['set_terminal_secret'] => {
+    return { success: false, error: 'Terminal secret operations not supported on host' };
+  },
+  has_terminal_secret: (_params: RequestParamMap['has_terminal_secret'], _api: FileSystemApiService, _terminal: TerminalManagerService): EventPayloadMap['has_terminal_secret'] => {
+    return { hasSecret: false };
+  },
+  check_terminal_secret: (_params: RequestParamMap['check_terminal_secret'], _api: FileSystemApiService, _terminal: TerminalManagerService): EventPayloadMap['check_terminal_secret'] => {
+    return { isMatching: false };
+  },
+  fetch_terminal_sessions: (_params: RequestParamMap['fetch_terminal_sessions'], _api: FileSystemApiService, terminal: TerminalManagerService): EventPayloadMap['fetch_terminal_sessions'] => {
+    return { sessions: terminal.getSessions() };
+  },
+  create_terminal_session: (params: RequestParamMap['create_terminal_session'], _api: FileSystemApiService, terminal: TerminalManagerService): EventPayloadMap['create_terminal_session'] => {
+    const shell = process.platform === 'win32' ? 'cmd.exe' : process.env.SHELL || '/bin/zsh';
+    const sessionId = terminal.createSession(shell, [], params.cols || 80, params.rows || 24);
+    return { session_id: sessionId };
+  },
+  send_terminal_key_strokes: (params: RequestParamMap['send_terminal_key_strokes'], _api: FileSystemApiService, terminal: TerminalManagerService): EventPayloadMap['send_terminal_key_strokes'] => {
+    terminal.write(params.session_id, params.data);
+    return null;
+  },
+  pull_terminal_changes: (params: RequestParamMap['pull_terminal_changes'], _api: FileSystemApiService, terminal: TerminalManagerService): EventPayloadMap['pull_terminal_changes'] => {
+    const result = terminal.getLogs(params.session_id, params.cursor);
+    return { changes: result.logs, new_cursor: result.nextCursor };
+  },
+  kill_terminal_session: (params: RequestParamMap['kill_terminal_session'], _api: FileSystemApiService, terminal: TerminalManagerService): EventPayloadMap['kill_terminal_session'] => {
+    terminal.kill(params.session_id);
+    return null;
+  },
+  run_single_terminal_command: async (params: RequestParamMap['run_single_terminal_command'], _api: FileSystemApiService, terminal: TerminalManagerService): Promise<EventPayloadMap['run_single_terminal_command']> => {
+    const output = await terminal.runOneOffCommand(params.command);
+    return { output };
   }
 } satisfies {
-  [K in ForwardableEvents]: (params: RequestParamMap[K], api: FileSystemApiService) => EventPayloadMap[K]
+  [K in ForwardableEvents]: (params: RequestParamMap[K], api: FileSystemApiService, terminal: TerminalManagerService) => EventPayloadMap[K] | Promise<EventPayloadMap[K]>
 };
 
 interface HostInitMessage {
@@ -47,7 +81,8 @@ export class HostClientService {
     @inject(Logger) private readonly logger: Logger,
     @inject(LocalKeyService) private readonly localKeyService: LocalKeyService,
     @inject(ConfigService) private readonly config: ConfigService,
-    @inject(FileSystemApiService) private readonly fileSystemApi: FileSystemApiService
+    @inject(FileSystemApiService) private readonly fileSystemApi: FileSystemApiService,
+    @inject(TerminalManagerService) private readonly terminalManager: TerminalManagerService
   ) { }
 
   async start (): Promise<void> {
@@ -90,6 +125,28 @@ export class HostClientService {
         this.logger.error(`Host client error: ${error.message}`);
         this.ws = undefined;
         this.scheduleReconnect();
+      });
+
+      this.terminalManager.on('created', (sessionId: string) => {
+        this.broadcast(JSON.stringify({
+          event_name: 'terminal_session_created',
+          session_id: sessionId
+        }));
+      });
+
+      this.terminalManager.on('data', (sessionId: string) => {
+        this.broadcast(JSON.stringify({
+          event_name: 'terminal_output_available',
+          session_id: sessionId
+        }));
+      });
+
+      this.terminalManager.on('exit', (sessionId: string, exitCode: number) => {
+        this.broadcast(JSON.stringify({
+          event_name: 'terminal_session_closed',
+          session_id: sessionId,
+          exit_code: exitCode
+        }));
       });
     } catch (error) {
       this.logger.error(`Failed to connect host client: ${(error as Error).message}`);
@@ -158,6 +215,16 @@ export class HostClientService {
     } catch (error) {
       this.logger.error(`Failed to parse host client message: ${(error as Error).message}`);
     }
+  }
+
+  private broadcast (message: string): void {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+      return;
+    }
+    this.ws.send(JSON.stringify({
+      event_name: 'host_broadcast',
+      wrapped_broadcast: message
+    }));
   }
 
   private translatePathToHost (devServerPath: string, devServerWorkingDir: string, hostWorkingDir: string): string {
@@ -291,6 +358,18 @@ export class HostClientService {
       } as RequestParamMap[K];
     }
 
+    if (eventName === 'set_terminal_secret' ||
+      eventName === 'has_terminal_secret' ||
+      eventName === 'check_terminal_secret' ||
+      eventName === 'fetch_terminal_sessions' ||
+      eventName === 'create_terminal_session' ||
+      eventName === 'send_terminal_key_strokes' ||
+      eventName === 'pull_terminal_changes' ||
+      eventName === 'kill_terminal_session' ||
+      eventName === 'run_single_terminal_command') {
+      return params;
+    }
+
     eventName satisfies never;
     return params;
   }
@@ -347,6 +426,18 @@ export class HostClientService {
       } as EventPayloadMap[K];
     }
 
+    if (eventName === 'set_terminal_secret' ||
+      eventName === 'has_terminal_secret' ||
+      eventName === 'check_terminal_secret' ||
+      eventName === 'fetch_terminal_sessions' ||
+      eventName === 'create_terminal_session' ||
+      eventName === 'send_terminal_key_strokes' ||
+      eventName === 'pull_terminal_changes' ||
+      eventName === 'kill_terminal_session' ||
+      eventName === 'run_single_terminal_command') {
+      return payload;
+    }
+
     eventName satisfies never;
     return payload;
   }
@@ -379,6 +470,19 @@ export class HostClientService {
       return;
     }
 
+    if (eventName === 'set_terminal_secret' ||
+      eventName === 'has_terminal_secret' ||
+      eventName === 'check_terminal_secret' ||
+      eventName === 'fetch_terminal_sessions' ||
+      eventName === 'create_terminal_session' ||
+      eventName === 'send_terminal_key_strokes' ||
+      eventName === 'pull_terminal_changes' ||
+      eventName === 'kill_terminal_session' ||
+      eventName === 'run_single_terminal_command') {
+      await this.handleTerminalCommand(message, devServerWorkingDir, hostWorkingDir);
+      return;
+    }
+
     const exhaustive: never = eventName;
     throw new Error(`Unhandled event type: ${String(exhaustive)}`);
   }
@@ -395,7 +499,7 @@ export class HostClientService {
       'get_git_status'
     );
 
-    const result = hostForwardHandlers.get_git_status(translatedParams, this.fileSystemApi);
+    const result = hostForwardHandlers.get_git_status(translatedParams, this.fileSystemApi, this.terminalManager);
 
     const translatedPayload = this.translateResponsePayload(
       result,
@@ -419,7 +523,7 @@ export class HostClientService {
       'copy_to_clipboard'
     );
 
-    const result = hostForwardHandlers.copy_to_clipboard(translatedParams, this.fileSystemApi);
+    const result = hostForwardHandlers.copy_to_clipboard(translatedParams, this.fileSystemApi, this.terminalManager);
 
     const translatedPayload = this.translateResponsePayload(
       result,
@@ -443,13 +547,43 @@ export class HostClientService {
       'import_items'
     );
 
-    const result = hostForwardHandlers.import_items(translatedParams, this.fileSystemApi);
+    const result = hostForwardHandlers.import_items(translatedParams, this.fileSystemApi, this.terminalManager);
 
     const translatedPayload = this.translateResponsePayload(
       result,
       devServerWorkingDir,
       hostWorkingDir,
       'import_items'
+    );
+
+    this.sendHostResponse(message.request_uuid, message.wrapped_request, translatedPayload);
+  }
+
+  private async handleTerminalCommand<K extends ForwardableEvents>(
+    message: HostForwardRequest<K>,
+    devServerWorkingDir: string,
+    hostWorkingDir: string
+  ): Promise<void> {
+    const translatedParams = this.translateRequestParams(
+      message.wrapped_request.params,
+      devServerWorkingDir,
+      hostWorkingDir,
+      message.wrapped_request.event_name
+    );
+
+    const handler = hostForwardHandlers[message.wrapped_request.event_name] as (
+      params: RequestParamMap[K],
+      api: FileSystemApiService,
+      terminal: TerminalManagerService
+    ) => EventPayloadMap[K] | Promise<EventPayloadMap[K]>;
+
+    const result = await handler(translatedParams, this.fileSystemApi, this.terminalManager);
+
+    const translatedPayload = this.translateResponsePayload(
+      result,
+      devServerWorkingDir,
+      hostWorkingDir,
+      message.wrapped_request.event_name
     );
 
     this.sendHostResponse(message.request_uuid, message.wrapped_request, translatedPayload);

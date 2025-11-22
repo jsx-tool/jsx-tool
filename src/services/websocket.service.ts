@@ -7,6 +7,7 @@ import { KeyFetcher } from './key-fetcher.service';
 import { KeyManager } from './key-manager.service';
 import { SignatureVerifierService } from './signature-verifier.service';
 import { LocalKeyService } from './local-key.service';
+import { TerminalManagerService } from './terminal-manager.service';
 import type {
   ExistsResult,
   LsArgs,
@@ -119,6 +120,49 @@ export interface RequestParamMap {
     pattern: string
     options?: RipGrepSearchOptions
   }
+
+  // terminal
+  set_terminal_secret: {
+    secret: string
+  }
+
+  has_terminal_secret: unknown
+
+  check_terminal_secret: {
+    secret: string
+  }
+
+  create_terminal_session: {
+    secret: string
+    cols?: number
+    rows?: number
+  }
+
+  send_terminal_key_strokes: {
+    secret: string
+    session_id: string
+    data: string
+  }
+
+  pull_terminal_changes: {
+    secret: string
+    session_id: string
+    cursor: number
+  }
+
+  kill_terminal_session: {
+    secret: string
+    session_id: string
+  }
+
+  fetch_terminal_sessions: {
+    secret: string
+  }
+
+  run_single_terminal_command: {
+    secret: string
+    command: string
+  }
 }
 
 export interface EventPayloadMap {
@@ -207,6 +251,40 @@ export interface EventPayloadMap {
   get_git_status: GitStatusResult
 
   search: RipGrepSearchResult
+
+  create_terminal_session: {
+    session_id: string
+  }
+
+  send_terminal_key_strokes: null
+
+  pull_terminal_changes: {
+    changes: Array<{ id: number, data: string }>
+    new_cursor: number
+  }
+
+  kill_terminal_session: null
+
+  fetch_terminal_sessions: {
+    sessions: string[]
+  }
+
+  run_single_terminal_command: {
+    output: string
+  }
+
+  set_terminal_secret: {
+    success: boolean
+    error?: string
+  }
+
+  has_terminal_secret: {
+    hasSecret: boolean
+  }
+
+  check_terminal_secret: {
+    isMatching: boolean
+  }
 }
 
 export interface WebSocketInboundEvent<K extends keyof RequestParamMap> {
@@ -227,7 +305,16 @@ export type WebSocketPostInitMessage =
 export type ForwardableEvents =
   | 'get_git_status'
   | 'copy_to_clipboard'
-  | 'import_items';
+  | 'import_items'
+  | 'set_terminal_secret'
+  | 'has_terminal_secret'
+  | 'check_terminal_secret'
+  | 'fetch_terminal_sessions'
+  | 'create_terminal_session'
+  | 'send_terminal_key_strokes'
+  | 'pull_terminal_changes'
+  | 'kill_terminal_session'
+  | 'run_single_terminal_command';
 
 export interface HostForwardRequest<K extends ForwardableEvents> {
   event_name: 'host_forward'
@@ -242,6 +329,11 @@ export interface HostResponseMessage<K extends ForwardableEvents> {
   wrapped_response: WebSocketResponseEvent<K>
 }
 
+export interface HostBroadcastMessage {
+  event_name: 'host_broadcast'
+  wrapped_broadcast: string
+}
+
 type WebSocketUnsignedMessage =
   | {
     event_name: 'key_registered'
@@ -252,7 +344,8 @@ type WebSocketUnsignedMessage =
     event_name: 'host_init'
     signature: string
     timestamp: number
-  } | HostResponseMessage<ForwardableEvents>;
+  } | HostResponseMessage<ForwardableEvents>
+  | HostBroadcastMessage;
 
 type WebSocketMessage = WebSocketPostInitMessage | WebSocketUnsignedMessage;
 
@@ -290,7 +383,16 @@ const signedEvents = new Set<keyof RequestParamMap>([
   'open_files',
   'check_diagnostics',
   'get_git_status',
-  'search'
+  'search',
+  'set_terminal_secret',
+  'has_terminal_secret',
+  'check_terminal_secret',
+  'fetch_terminal_sessions',
+  'create_terminal_session',
+  'send_terminal_key_strokes',
+  'pull_terminal_changes',
+  'kill_terminal_session',
+  'run_single_terminal_command'
 ]);
 
 @singleton()
@@ -316,7 +418,8 @@ export class WebSocketService {
     @inject(DesktopEmitterService) private readonly desktopEmitterService: DesktopEmitterService,
     @inject(LspWorkerManagerService) private readonly lspWorkerManager: LspWorkerManagerService,
     @inject(RipGrepService) private readonly ripgrepService: RipGrepService,
-    @inject(LocalKeyService) private readonly localKeyService: LocalKeyService
+    @inject(LocalKeyService) private readonly localKeyService: LocalKeyService,
+    @inject(TerminalManagerService) private readonly terminalManager: TerminalManagerService
   ) { }
 
   async startWithHttpServer (httpServer: Server): Promise<void> {
@@ -367,6 +470,28 @@ export class WebSocketService {
       this.broadcast(JSON.stringify({
         event_name: 'lsp_update',
         lsp_response: lspResponse
+      }));
+    });
+
+    this.terminalManager.on('created', (sessionId: string) => {
+      this.broadcast(JSON.stringify({
+        event_name: 'terminal_session_created',
+        session_id: sessionId
+      }));
+    });
+
+    this.terminalManager.on('data', (sessionId: string) => {
+      this.broadcast(JSON.stringify({
+        event_name: 'terminal_output_available',
+        session_id: sessionId
+      }));
+    });
+
+    this.terminalManager.on('exit', (sessionId: string, exitCode: number) => {
+      this.broadcast(JSON.stringify({
+        event_name: 'terminal_session_closed',
+        session_id: sessionId,
+        exit_code: exitCode
       }));
     });
 
@@ -466,6 +591,11 @@ export class WebSocketService {
 
       if (message.event_name === 'host_response' && socket === this.hostClient) {
         this.handleHostResponse(message as HostResponseMessage<ForwardableEvents>);
+        return;
+      }
+
+      if (message.event_name === 'host_broadcast' && socket === this.hostClient) {
+        this.broadcast(message.wrapped_broadcast);
         return;
       }
 
@@ -798,6 +928,180 @@ export class WebSocketService {
           );
           break;
         }
+
+        case 'create_terminal_session': {
+          if (!this.verifyTerminalSecret(postInitMessage.params.secret)) {
+            return;
+          }
+          if (this.hasHostClient()) {
+            const payload = await this.sendToHost(postInitMessage);
+            socket.send(this.serializeResponseMessage(postInitMessage, payload));
+          } else {
+            const sessionId = this.terminalManager.createSession(
+              process.platform === 'win32' ? 'cmd.exe' : process.env.SHELL || '/bin/zsh',
+              process.platform === 'win32' ? [] : ['-l'],
+              postInitMessage.params.cols || 80,
+              postInitMessage.params.rows || 24
+            );
+            socket.send(
+              this.serializeResponseMessage(postInitMessage, {
+                session_id: sessionId
+              })
+            );
+          }
+          break;
+        }
+
+        case 'send_terminal_key_strokes': {
+          if (!this.verifyTerminalSecret(postInitMessage.params.secret)) {
+            return;
+          }
+          if (this.hasHostClient()) {
+            const payload = await this.sendToHost(postInitMessage);
+            socket.send(this.serializeResponseMessage(postInitMessage, payload));
+          } else {
+            this.terminalManager.write(
+              postInitMessage.params.session_id,
+              postInitMessage.params.data
+            );
+            socket.send(
+              this.serializeResponseMessage(postInitMessage, null)
+            );
+          }
+          break;
+        }
+
+        case 'pull_terminal_changes': {
+          if (!this.verifyTerminalSecret(postInitMessage.params.secret)) {
+            return;
+          }
+          if (this.hasHostClient()) {
+            const payload = await this.sendToHost(postInitMessage);
+            socket.send(this.serializeResponseMessage(postInitMessage, payload));
+          } else {
+            const { logs, nextCursor } = this.terminalManager.getLogs(
+              postInitMessage.params.session_id,
+              postInitMessage.params.cursor
+            );
+            socket.send(
+              this.serializeResponseMessage(postInitMessage, {
+                changes: logs,
+                new_cursor: nextCursor
+              })
+            );
+          }
+          break;
+        }
+
+        case 'kill_terminal_session': {
+          if (!this.verifyTerminalSecret(postInitMessage.params.secret)) {
+            return;
+          }
+          if (this.hasHostClient()) {
+            const payload = await this.sendToHost(postInitMessage);
+            socket.send(this.serializeResponseMessage(postInitMessage, payload));
+          } else {
+            this.terminalManager.kill(postInitMessage.params.session_id);
+            socket.send(
+              this.serializeResponseMessage(postInitMessage, null)
+            );
+          }
+          break;
+        }
+
+        case 'fetch_terminal_sessions': {
+          if (!this.verifyTerminalSecret(postInitMessage.params.secret)) {
+            return;
+          }
+          if (this.hasHostClient()) {
+            const payload = await this.sendToHost(postInitMessage);
+            socket.send(this.serializeResponseMessage(postInitMessage, payload));
+          } else {
+            const sessions = this.terminalManager.getSessions();
+            socket.send(
+              this.serializeResponseMessage(postInitMessage, {
+                sessions
+              })
+            );
+          }
+          break;
+        }
+
+        case 'run_single_terminal_command': {
+          if (!this.verifyTerminalSecret(postInitMessage.params.secret)) {
+            return;
+          }
+          if (this.hasHostClient()) {
+            const payload = await this.sendToHost(postInitMessage);
+            socket.send(this.serializeResponseMessage(postInitMessage, payload));
+          } else {
+            const output = await this.terminalManager.runOneOffCommand(
+              postInitMessage.params.command
+            );
+            socket.send(
+              this.serializeResponseMessage(postInitMessage, {
+                output
+              })
+            );
+          }
+          break;
+        }
+
+        case 'set_terminal_secret': {
+          const terminalSecretPath = this.config.getTerminalSecretPath();
+          if (this.fileSystemApi.exists(terminalSecretPath).exists) {
+            socket.send(
+              this.serializeResponseMessage(postInitMessage, {
+                success: false,
+                error: 'Terminal secret already set'
+              })
+            );
+            break;
+          }
+
+          this.config.ensureGitIgnore();
+          const res = this.fileSystemApi.writeToFile(terminalSecretPath, postInitMessage.params.secret);
+
+          if (!res.success) {
+            socket.send(
+              this.serializeResponseMessage(postInitMessage, {
+                success: false,
+                error: 'Failed to set terminal secret'
+              })
+            );
+          } else {
+            socket.send(
+              this.serializeResponseMessage(postInitMessage, {
+                success: true
+              })
+            );
+          }
+          break;
+        }
+
+        case 'has_terminal_secret': {
+          const terminalSecretPath = this.config.getTerminalSecretPath();
+          let hasSecret = false;
+          if (terminalSecretPath) {
+            hasSecret = this.fileSystemApi.exists(terminalSecretPath).exists;
+          }
+          socket.send(
+            this.serializeResponseMessage(postInitMessage, {
+              hasSecret
+            })
+          );
+          break;
+        }
+
+        case 'check_terminal_secret': {
+          const isMatching = this.verifyTerminalSecret(postInitMessage.params.secret);
+          socket.send(
+            this.serializeResponseMessage(postInitMessage, {
+              isMatching
+            })
+          );
+          break;
+        }
       }
     } catch (err) {
       this.logger.error(
@@ -1023,5 +1327,15 @@ export class WebSocketService {
       isActive: uuids.length > 0,
       currentUuid: uuids[0]
     };
+  }
+
+  private verifyTerminalSecret (secret: string): boolean {
+    const terminalSecretPath = this.config.getTerminalSecretPath();
+    if (!terminalSecretPath) return false;
+
+    const result = this.fileSystemApi.readFile(terminalSecretPath, 'utf-8', true);
+    if (!result.success || !result.data) return false;
+
+    return result.data.trim() === secret.trim();
   }
 }

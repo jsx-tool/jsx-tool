@@ -6,6 +6,7 @@ import { resolve, join, relative, extname, dirname } from 'path';
 import * as path from 'path';
 import { ConfigService } from './config.service';
 import { execSync } from 'child_process';
+import { Logger } from './logger.service';
 
 export interface ProjectInfo {
   projectRoot: string
@@ -149,7 +150,8 @@ export class FileSystemApiService {
   private readonly fileChangeListener: Array<(changes: FileChangeEvent[]) => void> = [];
 
   constructor (
-    @inject(ConfigService) private readonly configService: ConfigService
+    @inject(ConfigService) private readonly configService: ConfigService,
+    @inject(Logger) private readonly logger: Logger
   ) {
   }
 
@@ -203,7 +205,7 @@ export class FileSystemApiService {
       });
 
       w.on('error', (error: NodeJS.ErrnoException) => {
-        console.error(`File watcher error for ${root}:`, error.message);
+        this.logger.error(`File watcher error for ${root}: ${error.message}`);
         w.close();
         const index = this.watchers.indexOf(w);
         if (index > -1) {
@@ -285,7 +287,7 @@ export class FileSystemApiService {
     return { safe: true };
   }
 
-  readFile (filePath: string, encoding: BufferEncoding = 'utf8'): ReadFileResult {
+  readFile (filePath: string, encoding: BufferEncoding = 'utf8', overrideSafeCheck: boolean = false): ReadFileResult {
     try {
       const absolutePath = resolve(filePath);
 
@@ -302,8 +304,12 @@ export class FileSystemApiService {
       }
 
       const safe = this.isPathSafe(absolutePath, stats);
-      if (!safe.safe) {
+      if (!safe.safe && !overrideSafeCheck) {
         return { success: false, error: safe.reason };
+      }
+
+      if (absolutePath === this.configService.getTerminalSecretPath() && existsSync(absolutePath) && !overrideSafeCheck) {
+        return { success: false, error: 'Permission denied' };
       }
 
       const data = readFileSync(absolutePath, encoding);
@@ -330,10 +336,17 @@ export class FileSystemApiService {
       const absolutePath = resolve(filePath);
 
       const safetyCheck = this.isPathSafe(absolutePath);
-      if (!safetyCheck.safe) {
+      if (!safetyCheck.safe && absolutePath !== this.configService.getTerminalSecretPath()) {
         return {
           success: false,
           error: safetyCheck.reason
+        };
+      }
+
+      if (absolutePath === this.configService.getTerminalSecretPath() && existsSync(absolutePath)) {
+        return {
+          success: false,
+          error: 'Error writing to terminal secret file'
         };
       }
 
@@ -503,6 +516,10 @@ export class FileSystemApiService {
           success: false,
           error: safetyCheck.reason
         };
+      }
+
+      if (absolutePath === this.configService.getTerminalSecretPath() && existsSync(absolutePath)) {
+        return { success: false, error: 'Permission denied' };
       }
 
       unlinkSync(absolutePath);
