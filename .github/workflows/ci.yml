@@ -194,16 +194,16 @@ jobs:
           cd /tmp/test-install
           npm init -y
           echo "Installing package..."
-          npm install $GITHUB_WORKSPACE/*.tgz
+          npm install $GITHUB_WORKSPACE/*.tgz --ignore-scripts
+          
+          echo "Running postinstall..."
+          cd node_modules/@jsx-tool/jsx-tool
+          node bin/postinstall.js
+          cd ../../..
           
           echo "Checking what got installed..."
           ls -la node_modules/@jsx-tool/jsx-tool/
           ls -la node_modules/node-pty/ || echo "node-pty not found"
-          ls -la node_modules/node-pty/build/ || echo "build dir not found"
-          ls -la node_modules/node-pty/build/Release/ || echo "Release dir not found"
-          
-          echo "Checking if postinstall ran..."
-          cat node_modules/@jsx-tool/jsx-tool/bin/postinstall.js | head -20
           
           echo "Testing binary existence..."
           node -e "
