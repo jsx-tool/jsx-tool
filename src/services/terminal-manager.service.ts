@@ -1,7 +1,42 @@
 import { injectable, singleton, inject } from 'tsyringe';
-import * as pty from 'node-pty';
 import { EventEmitter } from 'events';
 import { ConfigService } from './config.service';
+
+interface IPtyForkOptions {
+  name?: string
+  cols?: number
+  rows?: number
+  cwd?: string
+  env?: Record<string, string | undefined>
+  encoding?: string
+  handleFlowControl?: boolean
+  flowControlPause?: string
+  flowControlResume?: string
+}
+
+interface IPty {
+  pid: number
+  cols: number
+  rows: number
+  process: string
+  onData: (callback: (data: string) => void) => void
+  onExit: (callback: (exitInfo: { exitCode: number | null, signal: string | null }) => void) => void
+  write: (data: string) => void
+  resize: (cols: number, rows: number) => void
+  kill: (signal?: string) => void
+}
+
+interface INodePty {
+  spawn: (file: string, args: string[] | string, options: IPtyForkOptions) => IPty
+}
+
+let pty: INodePty | null = null;
+try {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  pty = require('node-pty') as INodePty;
+} catch (e) {
+  console.warn('node-pty not available - terminal features disabled');
+}
 
 export interface TerminalLog {
   id: number
@@ -12,7 +47,7 @@ export interface TerminalLog {
 @injectable()
 export class TerminalManagerService extends EventEmitter {
   private readonly sessions = new Map<string, {
-    pty: pty.IPty
+    pty: IPty
     logs: TerminalLog[]
     nextLogId: number
   }>();
@@ -24,10 +59,14 @@ export class TerminalManagerService extends EventEmitter {
   }
 
   createSession (shell: string, args: string[], cols: number, rows: number, env: Record<string, string> = {}): string {
+    if (!pty) {
+      throw new Error('Terminal support is not available');
+    }
+
     const sessionId = Math.random().toString(36).substring(2, 15);
     const config = this.configService.getConfig();
 
-    const ptyProcess = pty.spawn(shell, args, {
+    const ptyProcess = pty?.spawn?.(shell, args, {
       name: 'xterm-color',
       cols: cols || 80,
       rows: rows || 24,
@@ -35,19 +74,15 @@ export class TerminalManagerService extends EventEmitter {
       env: { ...process.env, ...env }
     });
 
-    const session: {
-      pty: pty.IPty
-      logs: TerminalLog[]
-      nextLogId: number
-    } = {
+    const session = {
       pty: ptyProcess,
-      logs: [],
+      logs: [] as TerminalLog[],
       nextLogId: 1
     };
 
     this.sessions.set(sessionId, session);
 
-    ptyProcess.onData((data) => {
+    ptyProcess?.onData?.((data: string) => {
       const logId = session.nextLogId++;
       session.logs.push({ id: logId, data });
       this.emit('data', sessionId);
@@ -58,22 +93,28 @@ export class TerminalManagerService extends EventEmitter {
     });
 
     this.emit('created', sessionId);
-
     return sessionId;
   }
 
   write (sessionId: string, data: string): void {
     const session = this.sessions.get(sessionId);
     if (session) {
-      session.pty.write(data);
+      session.pty?.write?.(data);
     }
   }
 
   kill (sessionId: string): void {
     const session = this.sessions.get(sessionId);
     if (session) {
-      session.pty.kill();
+      session.pty?.kill?.();
       this.sessions.delete(sessionId);
+    }
+  }
+
+  resize (sessionId: string, cols: number, rows: number): void {
+    const session = this.sessions.get(sessionId);
+    if (session) {
+      session.pty?.resize?.(cols, rows);
     }
   }
 
@@ -101,11 +142,15 @@ export class TerminalManagerService extends EventEmitter {
   }
 
   async runOneOffCommand (command: string, cwd?: string, env: Record<string, string> = {}): Promise<string> {
+    if (!pty) {
+      return '';
+    }
+
     return await new Promise((resolve) => {
       const shell = process.platform === 'win32' ? 'cmd.exe' : process.env.SHELL || '/bin/zsh';
       const args = process.platform === 'win32' ? ['/c', command] : ['-c', command];
 
-      const ptyProcess = pty.spawn(shell, args, {
+      const ptyProcess = pty?.spawn?.(shell, args, {
         name: 'xterm-color',
         cols: 80,
         rows: 24,
@@ -115,17 +160,17 @@ export class TerminalManagerService extends EventEmitter {
 
       let output = '';
 
-      ptyProcess.onData((data) => {
+      ptyProcess?.onData?.((data: string) => {
         output += data;
       });
 
-      ptyProcess.onExit(({ exitCode }) => {
-        if (exitCode === 0) {
-          resolve(output);
-        } else {
-          resolve(output);
-        }
+      ptyProcess?.onExit?.(() => {
+        resolve(output);
       });
     });
+  }
+
+  isAvailable (): boolean {
+    return pty !== null;
   }
 }
