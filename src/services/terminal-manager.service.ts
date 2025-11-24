@@ -1,5 +1,5 @@
 import { injectable, singleton, inject } from 'tsyringe';
-import * as pty from 'node-pty';
+import * as pty from '@lydell/node-pty';
 import { EventEmitter } from 'events';
 import { ConfigService } from './config.service';
 
@@ -31,8 +31,7 @@ export class TerminalManagerService extends EventEmitter {
       name: 'xterm-color',
       cols: cols || 80,
       rows: rows || 24,
-      cwd: config.workingDirectory,
-      env: { ...process.env, ...env }
+      cwd: config.workingDirectory
     });
 
     const session: {
@@ -109,8 +108,7 @@ export class TerminalManagerService extends EventEmitter {
         name: 'xterm-color',
         cols: 80,
         rows: 24,
-        cwd: cwd || this.configService.getConfig().workingDirectory || process.env.HOME || process.cwd(),
-        env: { ...process.env, ...env }
+        cwd: cwd || this.configService.getConfig().workingDirectory || process.env.HOME || process.cwd()
       });
 
       let output = '';
