@@ -23,7 +23,7 @@ CFLAGS_Debug := \
 	-fno-strict-aliasing \
 	-mmacosx-version-min=10.7 \
 	-arch \
-	arm64 \
+	x86_64 \
 	-Wall \
 	-Wendif-labels \
 	-W \
@@ -46,13 +46,13 @@ CFLAGS_OBJC_Debug :=
 CFLAGS_OBJCC_Debug :=
 
 INCS_Debug := \
-	-I/Users/runner/Library/Caches/node-gyp/22.21.1/include/node \
-	-I/Users/runner/Library/Caches/node-gyp/22.21.1/src \
-	-I/Users/runner/Library/Caches/node-gyp/22.21.1/deps/openssl/config \
-	-I/Users/runner/Library/Caches/node-gyp/22.21.1/deps/openssl/openssl/include \
-	-I/Users/runner/Library/Caches/node-gyp/22.21.1/deps/uv/include \
-	-I/Users/runner/Library/Caches/node-gyp/22.21.1/deps/zlib \
-	-I/Users/runner/Library/Caches/node-gyp/22.21.1/deps/v8/include
+	-I/Users/runner/Library/Caches/node-gyp/22.19.0/include/node \
+	-I/Users/runner/Library/Caches/node-gyp/22.19.0/src \
+	-I/Users/runner/Library/Caches/node-gyp/22.19.0/deps/openssl/config \
+	-I/Users/runner/Library/Caches/node-gyp/22.19.0/deps/openssl/openssl/include \
+	-I/Users/runner/Library/Caches/node-gyp/22.19.0/deps/uv/include \
+	-I/Users/runner/Library/Caches/node-gyp/22.19.0/deps/zlib \
+	-I/Users/runner/Library/Caches/node-gyp/22.19.0/deps/v8/include
 
 DEFS_Release := \
 	'-DNODE_GYP_MODULE_NAME=spawn-helper' \
@@ -73,7 +73,7 @@ CFLAGS_Release := \
 	-fno-strict-aliasing \
 	-mmacosx-version-min=10.7 \
 	-arch \
-	arm64 \
+	x86_64 \
 	-Wall \
 	-Wendif-labels \
 	-W \
@@ -96,13 +96,13 @@ CFLAGS_OBJC_Release :=
 CFLAGS_OBJCC_Release :=
 
 INCS_Release := \
-	-I/Users/runner/Library/Caches/node-gyp/22.21.1/include/node \
-	-I/Users/runner/Library/Caches/node-gyp/22.21.1/src \
-	-I/Users/runner/Library/Caches/node-gyp/22.21.1/deps/openssl/config \
-	-I/Users/runner/Library/Caches/node-gyp/22.21.1/deps/openssl/openssl/include \
-	-I/Users/runner/Library/Caches/node-gyp/22.21.1/deps/uv/include \
-	-I/Users/runner/Library/Caches/node-gyp/22.21.1/deps/zlib \
-	-I/Users/runner/Library/Caches/node-gyp/22.21.1/deps/v8/include
+	-I/Users/runner/Library/Caches/node-gyp/22.19.0/include/node \
+	-I/Users/runner/Library/Caches/node-gyp/22.19.0/src \
+	-I/Users/runner/Library/Caches/node-gyp/22.19.0/deps/openssl/config \
+	-I/Users/runner/Library/Caches/node-gyp/22.19.0/deps/openssl/openssl/include \
+	-I/Users/runner/Library/Caches/node-gyp/22.19.0/deps/uv/include \
+	-I/Users/runner/Library/Caches/node-gyp/22.19.0/deps/zlib \
+	-I/Users/runner/Library/Caches/node-gyp/22.19.0/deps/v8/include
 
 OBJS := \
 	$(obj).target/$(TARGET)/src/unix/spawn-helper.o
@@ -137,7 +137,7 @@ LDFLAGS_Debug := \
 	-Wl,-search_paths_first \
 	-mmacosx-version-min=10.7 \
 	-arch \
-	arm64 \
+	x86_64 \
 	-L$(builddir) \
 	-stdlib=libc++
 
@@ -148,7 +148,7 @@ LDFLAGS_Release := \
 	-Wl,-search_paths_first \
 	-mmacosx-version-min=10.7 \
 	-arch \
-	arm64 \
+	x86_64 \
 	-L$(builddir) \
 	-stdlib=libc++
 

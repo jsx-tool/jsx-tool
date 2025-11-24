@@ -22,7 +22,7 @@ CFLAGS_Debug := \
 	-O0 \
 	-gdwarf-2 \
 	-mmacosx-version-min=10.7 \
-	-arch arm64 \
+	-arch x86_64 \
 	-Wall \
 	-Wendif-labels \
 	-W \
@@ -74,7 +74,7 @@ CFLAGS_Release := \
 	-O3 \
 	-gdwarf-2 \
 	-mmacosx-version-min=10.7 \
-	-arch arm64 \
+	-arch x86_64 \
 	-Wall \
 	-Wendif-labels \
 	-W \
@@ -141,7 +141,7 @@ LDFLAGS_Debug := \
 	-undefined dynamic_lookup \
 	-Wl,-search_paths_first \
 	-mmacosx-version-min=10.7 \
-	-arch arm64 \
+	-arch x86_64 \
 	-L$(builddir) \
 	-stdlib=libc++
 
@@ -153,7 +153,7 @@ LDFLAGS_Release := \
 	-undefined dynamic_lookup \
 	-Wl,-search_paths_first \
 	-mmacosx-version-min=10.7 \
-	-arch arm64 \
+	-arch x86_64 \
 	-L$(builddir) \
 	-stdlib=libc++
 

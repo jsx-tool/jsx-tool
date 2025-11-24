@@ -24,7 +24,7 @@ CFLAGS_Debug := \
 	-O0 \
 	-gdwarf-2 \
 	-mmacosx-version-min=10.7 \
-	-arch arm64 \
+	-arch x86_64 \
 	-Wall \
 	-Wendif-labels \
 	-W \
@@ -76,7 +76,7 @@ CFLAGS_Release := \
 	-O3 \
 	-gdwarf-2 \
 	-mmacosx-version-min=10.7 \
-	-arch arm64 \
+	-arch x86_64 \
 	-Wall \
 	-Wendif-labels \
 	-W \
@@ -141,7 +141,7 @@ $(obj).$(TOOLSET)/$(TARGET)/%.o: $(obj)/%.cc FORCE_DO_CMD
 LDFLAGS_Debug := \
 	-Wl,-search_paths_first \
 	-mmacosx-version-min=10.7 \
-	-arch arm64 \
+	-arch x86_64 \
 	-L$(builddir) \
 	-stdlib=libc++
 
@@ -151,7 +151,7 @@ LIBTOOLFLAGS_Debug := \
 LDFLAGS_Release := \
 	-Wl,-search_paths_first \
 	-mmacosx-version-min=10.7 \
-	-arch arm64 \
+	-arch x86_64 \
 	-L$(builddir) \
 	-stdlib=libc++
 
