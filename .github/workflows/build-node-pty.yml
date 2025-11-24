@@ -1,7 +1,10 @@
 name: Build node-pty Prebuilts
 
 on:
-  workflow_dispatch:  # Manual trigger
+  workflow_dispatch:
+
+permissions:
+  contents: write
   
 jobs:
   build-unix:
