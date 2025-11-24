@@ -1,12 +1,12 @@
 import 'reflect-metadata';
 import { container } from 'tsyringe';
 import { TerminalManagerService } from '../terminal-manager.service';
-import * as pty from '@lydell/node-pty';
+import * as pty from 'node-pty';
 import { EventEmitter } from 'events';
 
 import { ConfigService } from '../config.service';
 
-jest.mock('@lydell/node-pty', () => {
+jest.mock('node-pty', () => {
     return {
         spawn: jest.fn()
     };
