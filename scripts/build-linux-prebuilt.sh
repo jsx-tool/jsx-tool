@@ -26,7 +26,7 @@ build_variant() {
     
     # Install build dependencies if needed (for Alpine)
     if [ -f /etc/alpine-release ]; then
-      apk add --no-cache python3 make g++
+      apk add --no-cache nodejs npm make g++
     fi
     
     # Get Node ABI
@@ -60,6 +60,7 @@ build_variant() {
 build_variant "glibc" "node:20" ""
 
 # Build for Alpine Linux (musl)
-build_variant "musl" "node:20-alpine" "-alpine"
+# Use python image base to have python pre-installed, then add node
+build_variant "musl" "python:3-alpine3.20" "-alpine"
 
 echo "Linux prebuilts created successfully!"

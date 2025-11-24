@@ -53,7 +53,14 @@ function setupTerminal() {
         const platformName = isAlpine ? 'linux-alpine' : platform;
         const prebuiltName = `node-v${nodeAbi}-${platformName}-${arch}`;
         const prebuiltPath = path.join(__dirname, '..', 'vendor', 'node-pty-prebuilts', prebuiltName);
-        const nodePtyPath = path.join(__dirname, '..', '..', 'node-pty');
+
+        let nodePtyPath;
+        try {
+            nodePtyPath = path.dirname(require.resolve('node-pty/package.json'));
+        } catch (e) {
+            // Fallback for when node-pty is not yet resolvable or other issues
+            nodePtyPath = path.join(__dirname, '..', '..', 'node-pty');
+        }
 
         console.log(`Looking for prebuilt at: ${prebuiltPath}`);
 

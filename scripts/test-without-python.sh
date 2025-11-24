@@ -16,9 +16,13 @@ else
   BUILD_ARCH="x64"
 fi
 
-./scripts/build-linux-prebuilt.sh $BUILD_ARCH
-npm run build
-npm pack
+echo "PHASE 1: Generating prebuilts (Dev/CI only - requires Python)..."
+./scripts/build-linux-prebuilt.sh $BUILD_ARCH > /dev/null 2>&1
+echo "✓ Prebuilts generated"
+
+echo "PHASE 2: Packaging..."
+npm run build > /dev/null 2>&1
+npm pack > /dev/null 2>&1
 
 TARBALL=$(ls -t *.tgz | head -1)
 TARBALL_PATH=$(pwd)/$TARBALL
@@ -42,31 +46,6 @@ docker run --rm -v $TARBALL_PATH:/package.tgz node:20-alpine sh -c "
   echo 'Running postinstall...'
   cd node_modules/@jsx-tool/jsx-tool
   node bin/postinstall.js
-  
-  echo "Debugging: Checking node-pty build directory..."
-  ls -lR node_modules/node-pty/build || echo "Build dir not found"
-  
-  echo "Debugging: Checking binary type..."
-  apk add --no-cache file pax-utils
-  ls -l node_modules/node-pty/build/Release/pty.node
-  file node_modules/node-pty/build/Release/pty.node
-  
-  echo "Debugging: Checking shared libraries..."
-  scanelf -n node_modules/node-pty/build/Release/pty.node
-  
-  echo "Debugging: Checking architecture..."
-  uname -m
-  
-  echo "Debugging: Trying to require absolute path..."
-  node <<EOF
-    try {
-      require('$(pwd)/node_modules/node-pty/build/Release/pty.node');
-      console.log('✓ Require absolute path succeeded');
-    } catch (e) {
-      console.error('✗ Require absolute path failed:', e);
-    }
-EOF
-  
   cd ../..
   
   echo 'Testing node-pty...'
