@@ -163,11 +163,89 @@ jobs:
           name: node-v${{ steps.abi.outputs.abi }}-linux-arm64
           path: node-*-linux-arm64.tar.gz
 
+  build-alpine:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - arch: x64
+            platform: linux/amd64
+            node: 18
+          - arch: x64
+            platform: linux/amd64
+            node: 20
+          - arch: x64
+            platform: linux/amd64
+            node: 22
+          - arch: arm64
+            platform: linux/arm64
+            node: 18
+          - arch: arm64
+            platform: linux/arm64
+            node: 20
+          - arch: arm64
+            platform: linux/arm64
+            node: 22
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Setup QEMU
+        if: matrix.arch == 'arm64'
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: linux/arm64
+      
+      - name: Build for Alpine ${{ matrix.arch }}
+        run: |
+          mkdir -p temp-build
+          
+          docker run --rm --platform ${{ matrix.platform }} \
+            -v $PWD/temp-build:/work \
+            node:${{ matrix.node }}-alpine sh -c "
+              apk add --no-cache python3 make g++ linux-headers
+              
+              # Get Node ABI
+              NODE_ABI=\$(node -p 'process.versions.modules')
+              echo \"Node ABI: \$NODE_ABI\"
+              
+              cd /work
+              cat > package.json << 'EOF'
+          {
+            \"name\": \"temp-build\",
+            \"version\": \"1.0.0\",
+            \"dependencies\": {
+              \"node-pty\": \"1.0.0\"
+            }
+          }
+          EOF
+              npm install --build-from-source node-pty@1.0.0
+              
+              # Rename build directory to include ABI for extraction later
+              mkdir -p build-output
+              cp -r node_modules/node-pty/build/* build-output/
+              echo \$NODE_ABI > abi.txt
+          "
+          
+          # Read ABI
+          ABI=$(cat temp-build/abi.txt)
+          echo "Detected ABI: $ABI"
+          
+          # Create tarball
+          cd temp-build/build-output
+          tar -czf ../../node-v${ABI}-linux-alpine-${{ matrix.arch }}.tar.gz .
+      
+      - name: Upload Alpine artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: node-v${{ matrix.node }}-alpine-${{ matrix.arch }}
+          path: node-*-linux-alpine-${{ matrix.arch }}.tar.gz
+
   # Skip Windows for now - needs Windows SDK to build
   # Users on Windows will need to build from source with proper build tools
   
   commit:
-    needs: [build-native, build-cross-compile]
+    needs: [build-native, build-cross-compile, build-alpine]
     runs-on: ubuntu-latest
     if: success()
     steps:
@@ -208,7 +286,7 @@ jobs:
           echo "Prebuilt coverage:"
           for node_abi in 108 115 127; do
             echo "Node ABI $node_abi:"
-            for platform in linux darwin win32; do
+            for platform in linux linux-alpine darwin win32; do
               for arch in x64 arm64; do
                 dir="vendor/node-pty-prebuilts/node-v${node_abi}-${platform}-${arch}"
                 if [ -d "$dir" ] && [ -f "$dir/build/Release/pty.node" -o -f "$dir/build/Release/conpty.node" ]; then
