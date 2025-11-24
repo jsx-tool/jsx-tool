@@ -1,6 +1,6 @@
 {
   "name": "@jsx-tool/jsx-tool",
-  "version": "0.0.28",
+  "version": "0.0.29",
   "description": "Development server for JSX Tool",
   "repository": {
     "type": "git",
@@ -62,7 +62,6 @@
     "@vscode/ripgrep": "^1.17.0",
     "commander": "^14.0.0",
     "http-proxy": "^1.18.1",
-    "node-pty": "^1.0.0",
     "picocolors": "^1.1.1",
     "prettier": "^3.6.2",
     "reflect-metadata": "^0.2.2",
@@ -71,6 +70,9 @@
     "vscode-languageserver": "^9.0.1",
     "vscode-languageserver-textdocument": "^1.0.12",
     "ws": "^8.18.2"
+  },
+  "optionalDependencies": {
+    "node-pty": "^1.0.0"
   },
   "devDependencies": {
     "@types/commander": "^2.12.0",
