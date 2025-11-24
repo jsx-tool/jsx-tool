@@ -65,7 +65,8 @@ describe('LocalKeyService', () => {
             validate: jest.fn().mockReturnValue({ valid: true, errors: [] }),
             shouldModifyNextObjectCounter: false,
             isViteInstallation: false,
-            fullReload: jest.fn()
+            fullReload: jest.fn(),
+            ensureGitIgnore: jest.fn()
         } as any;
 
         container.registerInstance(Logger, mockLogger);
@@ -77,8 +78,8 @@ describe('LocalKeyService', () => {
     describe('getKeyDir', () => {
         it('should resolve to .jsxtool/host-keys in working directory', () => {
             (existsSync as jest.Mock).mockReturnValue(false);
-            (mkdirSync as jest.Mock).mockImplementation(() => {});
-            (writeFileSync as jest.Mock).mockImplementation(() => {});
+            (mkdirSync as jest.Mock).mockImplementation(() => { });
+            (writeFileSync as jest.Mock).mockImplementation(() => { });
 
             const paths = service.getKeyPaths();
             const expected = getExpectedPaths(testWorkingDir);
@@ -89,8 +90,8 @@ describe('LocalKeyService', () => {
 
         it('should create the directory if it does not exist', () => {
             (existsSync as jest.Mock).mockReturnValue(false);
-            (mkdirSync as jest.Mock).mockImplementation(() => {});
-            (writeFileSync as jest.Mock).mockImplementation(() => {});
+            (mkdirSync as jest.Mock).mockImplementation(() => { });
+            (writeFileSync as jest.Mock).mockImplementation(() => { });
 
             service.getKeyPaths();
             const expected = getExpectedPaths(testWorkingDir);
@@ -101,19 +102,13 @@ describe('LocalKeyService', () => {
             );
         });
 
-        it('should create .gitignore in .jsxtool directory', () => {
+        it('should call ensureGitIgnore when getting key directory', () => {
             (existsSync as jest.Mock).mockReturnValue(false);
             (mkdirSync as jest.Mock).mockImplementation(() => { });
-            (writeFileSync as jest.Mock).mockImplementation(() => { });
 
             service.getKeyPaths();
-            const expected = getExpectedPaths(testWorkingDir);
 
-            expect(writeFileSync).toHaveBeenCalledWith(
-                expected.gitignorePath,
-                '# Ignore all host authentication keys\nhost-keys\n',
-                'utf8'
-            );
+            expect(mockConfig.ensureGitIgnore).toHaveBeenCalled();
         });
 
         it('should throw error if working directory is not set', () => {
@@ -153,8 +148,8 @@ describe('LocalKeyService', () => {
     describe('getPrivateKey', () => {
         it('should return null if private key does not exist', () => {
             (existsSync as jest.Mock).mockReturnValue(false);
-            (mkdirSync as jest.Mock).mockImplementation(() => {});
-            (writeFileSync as jest.Mock).mockImplementation(() => {});
+            (mkdirSync as jest.Mock).mockImplementation(() => { });
+            (writeFileSync as jest.Mock).mockImplementation(() => { });
 
             const result = service.getPrivateKey();
             const expected = getExpectedPaths(testWorkingDir);
@@ -209,8 +204,8 @@ describe('LocalKeyService', () => {
     describe('getPublicKey', () => {
         it('should return null if public key does not exist', () => {
             (existsSync as jest.Mock).mockReturnValue(false);
-            (mkdirSync as jest.Mock).mockImplementation(() => {});
-            (writeFileSync as jest.Mock).mockImplementation(() => {});
+            (mkdirSync as jest.Mock).mockImplementation(() => { });
+            (writeFileSync as jest.Mock).mockImplementation(() => { });
 
             const result = service.getPublicKey();
             const expected = getExpectedPaths(testWorkingDir);
@@ -259,8 +254,8 @@ describe('LocalKeyService', () => {
 
         it('should return false if keys do not exist', () => {
             (existsSync as jest.Mock).mockReturnValue(false);
-            (mkdirSync as jest.Mock).mockImplementation(() => {});
-            (writeFileSync as jest.Mock).mockImplementation(() => {});
+            (mkdirSync as jest.Mock).mockImplementation(() => { });
+            (writeFileSync as jest.Mock).mockImplementation(() => { });
 
             const result = service.hasKeys();
 
@@ -306,8 +301,8 @@ describe('LocalKeyService', () => {
 
         it('should regenerate keys if force is true', () => {
             (existsSync as jest.Mock).mockReturnValue(true);
-            (unlinkSync as jest.Mock).mockImplementation(() => {});
-            (writeFileSync as jest.Mock).mockImplementation(() => {});
+            (unlinkSync as jest.Mock).mockImplementation(() => { });
+            (writeFileSync as jest.Mock).mockImplementation(() => { });
 
             const result = service.regenerateKeyPair(true);
 
@@ -319,11 +314,11 @@ describe('LocalKeyService', () => {
 
         it('should clear cache after regenerating', () => {
             (existsSync as jest.Mock).mockReturnValue(false);
-            (mkdirSync as jest.Mock).mockImplementation(() => {});
-            (writeFileSync as jest.Mock).mockImplementation(() => {});
+            (mkdirSync as jest.Mock).mockImplementation(() => { });
+            (writeFileSync as jest.Mock).mockImplementation(() => { });
 
             const clearCacheSpy = jest.spyOn(service, 'clearCache');
-            
+
             service.regenerateKeyPair(false);
 
             expect(clearCacheSpy).toHaveBeenCalled();
@@ -343,8 +338,8 @@ describe('LocalKeyService', () => {
 
         it('should return null if public key does not exist', () => {
             (existsSync as jest.Mock).mockReturnValue(false);
-            (mkdirSync as jest.Mock).mockImplementation(() => {});
-            (writeFileSync as jest.Mock).mockImplementation(() => {});
+            (mkdirSync as jest.Mock).mockImplementation(() => { });
+            (writeFileSync as jest.Mock).mockImplementation(() => { });
 
             const result = service.getPublicKeyDer();
 

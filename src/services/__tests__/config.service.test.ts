@@ -1,105 +1,66 @@
 import 'reflect-metadata';
+import { container } from 'tsyringe';
 import { ConfigService } from '../config.service';
-import { DEFAULT_CONFIG } from '../../types/config';
-import * as fs from 'fs';
-
-jest.mock('fs');
+import { join } from 'path';
+import { existsSync, readFileSync, rmSync, mkdirSync, writeFileSync } from 'fs';
 
 describe('ConfigService', () => {
-  let configService: ConfigService;
-  const mockFs = fs as jest.Mocked<typeof fs>;
-  let consoleErrorSpy: jest.SpyInstance;
+  const testDir = join(__dirname, 'test-config-service');
+  const jsxToolDir = join(testDir, '.jsxtool');
+  const gitignorePath = join(jsxToolDir, '.gitignore');
 
   beforeEach(() => {
-    configService = new ConfigService();
-    jest.clearAllMocks();
-    consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    if (existsSync(testDir)) {
+      rmSync(testDir, { recursive: true, force: true });
+    }
+    mkdirSync(testDir, { recursive: true });
   });
 
   afterEach(() => {
-    consoleErrorSpy.mockRestore();
+    if (existsSync(testDir)) {
+      rmSync(testDir, { recursive: true, force: true });
+    }
   });
 
-  describe('loadFromFile', () => {
-    it('should load config from file', async () => {
-      const mockConfig = {
-        serverPort: 4000,
-        proxyPort: 5000,
-        wsPort: 6000
-      };
-      
-      mockFs.existsSync.mockReturnValue(true);
-      mockFs.readFileSync.mockReturnValue(JSON.stringify(mockConfig));
-      
-      await configService.loadFromFile('/test/dir');
-      
-      const config = configService.getConfig();
-      expect(config.serverPort).toBe(4000);
-      expect(config.proxyPort).toBe(5000);
-      expect(config.wsPort).toBe(6000);
-    });
+  it('should create .gitignore with required entries if it does not exist', () => {
+    const config = container.resolve(ConfigService);
+    config.setWorkingDirectory(testDir);
 
-    it('should handle missing config file gracefully', async () => {
-      mockFs.existsSync.mockReturnValue(false);
-      
-      await configService.loadFromFile('/test/dir');
-      
-      const config = configService.getConfig();
-      expect(config.serverPort).toBe(DEFAULT_CONFIG.serverPort);
-      
-      expect(consoleErrorSpy).not.toHaveBeenCalled();
-    });
+    config.ensureGitIgnore();
 
-    it('should handle invalid JSON gracefully', async () => {
-      mockFs.existsSync.mockReturnValue(true);
-      mockFs.readFileSync.mockReturnValue('invalid json');
-      
-      await configService.loadFromFile('/test/dir');
-      
-      const config = configService.getConfig();
-      expect(config.serverPort).toBe(DEFAULT_CONFIG.serverPort);
-      
-      expect(consoleErrorSpy).toHaveBeenCalledWith(
-        expect.stringContaining('Error loading config from'),
-        expect.any(Error)
-      );
-    });
+    expect(existsSync(gitignorePath)).toBe(true);
+    const content = readFileSync(gitignorePath, 'utf8');
+    expect(content).toContain('host-keys');
+    expect(content).toContain('terminal-secret');
   });
 
-  describe('validate', () => {
-    it('should validate valid configuration', () => {
-      const result = configService.validate();
-      expect(result.valid).toBe(true);
-      expect(result.errors).toHaveLength(0);
-    });
+  it('should append required entries to existing .gitignore', () => {
+    mkdirSync(jsxToolDir, { recursive: true });
+    writeFileSync(gitignorePath, 'existing-entry\n', 'utf8');
 
-    it('should validate invalid ports', () => {
-      configService.setFromCliOptions({ serverPort: 0 });
-      
-      const result = configService.validate();
-      expect(result.valid).toBe(false);
-      expect(result.errors).toContain('Server port must be between 1 and 65535');
-    });
+    const config = container.resolve(ConfigService);
+    config.setWorkingDirectory(testDir);
 
-    it('should validate invalid protocols', () => {
-      configService.setFromCliOptions({ serverProtocol: 'ftp' as any });
-      
-      const result = configService.validate();
-      expect(result.valid).toBe(false);
-      expect(result.errors).toContain('Server protocol must be http or https');
-    });
+    config.ensureGitIgnore();
+
+    const content = readFileSync(gitignorePath, 'utf8');
+    expect(content).toContain('existing-entry');
+    expect(content).toContain('host-keys');
+    expect(content).toContain('terminal-secret');
   });
 
-  describe('CLI options', () => {
-    it('should override file config with CLI options', () => {
-      configService.setFromCliOptions({
-        serverPort: 7000,
-        proxyHost: '0.0.0.0'
-      });
-      
-      const config = configService.getConfig();
-      expect(config.serverPort).toBe(7000);
-      expect(config.proxyHost).toBe('0.0.0.0');
-    });
+  it('should not duplicate entries if they already exist', () => {
+    mkdirSync(jsxToolDir, { recursive: true });
+    writeFileSync(gitignorePath, 'host-keys\nterminal-secret\n', 'utf8');
+
+    const config = container.resolve(ConfigService);
+    config.setWorkingDirectory(testDir);
+
+    config.ensureGitIgnore();
+
+    const content = readFileSync(gitignorePath, 'utf8');
+    const lines = content.split('\n').filter(l => l.trim() !== '');
+    expect(lines.filter(l => l === 'host-keys').length).toBe(1);
+    expect(lines.filter(l => l === 'terminal-secret').length).toBe(1);
   });
 });

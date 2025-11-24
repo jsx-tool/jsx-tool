@@ -36,13 +36,9 @@ export class LocalKeyService {
     if (!existsSync(keyDir)) {
       mkdirSync(keyDir, { recursive: true });
       this.logger.debug(`Created keys directory: ${keyDir}`);
-
-      const gitignorePath = join(workingDir, '.jsxtool', '.gitignore');
-      if (!existsSync(gitignorePath)) {
-        writeFileSync(gitignorePath, '# Ignore all host authentication keys\nhost-keys\n', 'utf8');
-        this.logger.debug('Created .gitignore in .jsxtool directory');
-      }
     }
+
+    this.config.ensureGitIgnore();
 
     return keyDir;
   }
@@ -102,7 +98,6 @@ export class LocalKeyService {
       const { privateKeyPath, publicKeyPath } = this.getKeyPaths();
       return existsSync(privateKeyPath) && existsSync(publicKeyPath);
     } catch (err) {
-      // If working directory isn't set, we can't check for keys
       return false;
     }
   }

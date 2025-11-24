@@ -1,6 +1,6 @@
 {
   "name": "@jsx-tool/jsx-tool",
-  "version": "0.0.25",
+  "version": "0.0.26",
   "description": "Development server for JSX Tool",
   "repository": {
     "type": "git",
@@ -56,12 +56,13 @@
   "author": "Stanton Street Inc.",
   "license": "MIT",
   "dependencies": {
-    "@inquirer/prompts": "^7.10.1",
     "@inquirer/external-editor": "1.0.3",
+    "@inquirer/prompts": "^7.10.1",
     "@tailwindcss/language-service": "^0.14.29",
     "@vscode/ripgrep": "^1.17.0",
     "commander": "^14.0.0",
     "http-proxy": "^1.18.1",
+    "node-pty": "^1.0.0",
     "picocolors": "^1.1.1",
     "prettier": "^3.6.2",
     "reflect-metadata": "^0.2.2",

@@ -1,25 +1,26 @@
 import 'reflect-metadata';
 import { container } from 'tsyringe';
-import { WebSocketService }           from '../websocket.service';
-import { ConfigService }              from '../config.service';
-import { Logger }                     from '../logger.service';
-import { KeyFetcher }                 from '../key-fetcher.service';
-import { KeyManager }                 from '../key-manager.service';
-import { SignatureVerifierService }   from '../signature-verifier.service';
-import WebSocket                      from 'ws';
+import { WebSocketService } from '../websocket.service';
+import { ConfigService } from '../config.service';
+import { Logger } from '../logger.service';
+import { KeyFetcher } from '../key-fetcher.service';
+import { KeyManager } from '../key-manager.service';
+import { SignatureVerifierService } from '../signature-verifier.service';
+import { FileSystemApiService } from '../file-system-api.service';
+import WebSocket from 'ws';
 
 jest.setTimeout(10_000);
 
 class MockKeyFetcher {
   startFetching = jest.fn();
-  cleanup       = jest.fn();
+  cleanup = jest.fn();
   getCurrentUuid = jest.fn().mockReturnValue(null);
 }
 
 class MockKeyManager {
-  getCurrentKey  = jest.fn().mockReturnValue(null);
-  hasValidKey    = jest.fn().mockReturnValue(false);
-  cleanup        = jest.fn();
+  getCurrentKey = jest.fn().mockReturnValue(null);
+  hasValidKey = jest.fn().mockReturnValue(false);
+  cleanup = jest.fn();
   getCurrentUuid = jest.fn().mockReturnValue(null);
 
   private listener?: (data: any) => void;
@@ -39,13 +40,13 @@ class MockSigVerifier {
 
 describe('WebSocketService', () => {
   let wsService: WebSocketService;
-  let logger:    Logger;
+  let logger: Logger;
 
   beforeEach(() => {
     container.clearInstances();
 
     ['info', 'success', 'error', 'warn', 'debug'].forEach(method => {
-      jest.spyOn(Logger.prototype as any, method).mockImplementation(() => {});
+      jest.spyOn(Logger.prototype as any, method).mockImplementation(() => { });
     });
 
     const cfg = container.resolve(ConfigService);
@@ -54,7 +55,7 @@ describe('WebSocketService', () => {
 
     logger = new Logger();
     ['info', 'success', 'error', 'warn', 'debug'].forEach(method => {
-      jest.spyOn(logger as any, method).mockImplementation(() => {});
+      jest.spyOn(logger as any, method).mockImplementation(() => { });
     });
     container.registerInstance(Logger, logger);
 
@@ -126,5 +127,48 @@ describe('WebSocketService', () => {
         });
       });
     });
+  });
+
+  it('checks terminal secret', async () => {
+    const fsApi = container.resolve(FileSystemApiService);
+    jest.spyOn(fsApi, 'readFile').mockImplementation((path: string) => {
+      if (path === '/path/to/terminal-secret') {
+        return { success: true, data: 'correct-secret' };
+      }
+      return { success: false, error: 'Not found' };
+    });
+
+    const config = container.resolve(ConfigService);
+    jest.spyOn(config, 'getTerminalSecretPath').mockReturnValue('/path/to/terminal-secret');
+
+    const mockSocket = {
+      send: jest.fn(),
+      on: jest.fn(),
+      close: jest.fn(),
+    } as unknown as WebSocket;
+
+    const msg1 = {
+      event_name: 'check_terminal_secret',
+      params: { secret: 'correct-secret' },
+      message_id: '1',
+      signature: 'mock-signature'
+    };
+
+    await (wsService as any).handleMessage(JSON.stringify(msg1), mockSocket);
+
+    expect(mockSocket.send).toHaveBeenCalledWith(expect.stringContaining('"isMatching":true'));
+    expect(mockSocket.send).toHaveBeenCalledWith(expect.stringContaining('"message_id":"1"'));
+
+    const msg2 = {
+      event_name: 'check_terminal_secret',
+      params: { secret: 'wrong-secret' },
+      message_id: '2',
+      signature: 'mock-signature'
+    };
+
+    await (wsService as any).handleMessage(JSON.stringify(msg2), mockSocket);
+
+    expect(mockSocket.send).toHaveBeenCalledWith(expect.stringContaining('"isMatching":false'));
+    expect(mockSocket.send).toHaveBeenCalledWith(expect.stringContaining('"message_id":"2"'));
   });
 });
