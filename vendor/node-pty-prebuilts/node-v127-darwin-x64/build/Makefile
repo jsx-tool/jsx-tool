@@ -337,7 +337,7 @@ endif
 
 quiet_cmd_regen_makefile = ACTION Regenerating $@
 cmd_regen_makefile = cd $(srcdir); /Users/runner/hostedtoolcache/node/22.19.0/x64/lib/node_modules/npm/node_modules/node-gyp/gyp/gyp_main.py -fmake --ignore-environment "-Dlibrary=shared_library" "-Dvisibility=default" "-Dnode_root_dir=/Users/runner/Library/Caches/node-gyp/22.19.0" "-Dnode_gyp_dir=/Users/runner/hostedtoolcache/node/22.19.0/x64/lib/node_modules/npm/node_modules/node-gyp" "-Dnode_lib_file=/Users/runner/Library/Caches/node-gyp/22.19.0/<(target_arch)/node.lib" "-Dmodule_root_dir=/Users/runner/work/jsx-tool/jsx-tool/temp-build/node_modules/node-pty" "-Dnode_engine=v8" "--depth=." "-Goutput_dir=." "--generator-output=build" -I/Users/runner/work/jsx-tool/jsx-tool/temp-build/node_modules/node-pty/build/config.gypi -I/Users/runner/hostedtoolcache/node/22.19.0/x64/lib/node_modules/npm/node_modules/node-gyp/addon.gypi -I/Users/runner/Library/Caches/node-gyp/22.19.0/include/node/common.gypi "--toplevel-dir=." binding.gyp
-Makefile: $(srcdir)/build/config.gypi $(srcdir)/binding.gyp $(srcdir)/../../../../../../Library/Caches/node-gyp/22.19.0/include/node/common.gypi $(srcdir)/../../../../../../hostedtoolcache/node/22.19.0/x64/lib/node_modules/npm/node_modules/node-gyp/addon.gypi
+Makefile: $(srcdir)/../../../../../../hostedtoolcache/node/22.19.0/x64/lib/node_modules/npm/node_modules/node-gyp/addon.gypi $(srcdir)/build/config.gypi $(srcdir)/../../../../../../Library/Caches/node-gyp/22.19.0/include/node/common.gypi $(srcdir)/binding.gyp
 	$(call do_cmd,regen_makefile)
 
 # "all" is a concatenation of the "all" targets from all the included

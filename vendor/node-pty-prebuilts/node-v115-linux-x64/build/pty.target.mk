@@ -39,13 +39,13 @@ CFLAGS_CC_Debug := \
 	-std=gnu++17
 
 INCS_Debug := \
-	-I/root/.cache/node-gyp/20.19.5/include/node \
-	-I/root/.cache/node-gyp/20.19.5/src \
-	-I/root/.cache/node-gyp/20.19.5/deps/openssl/config \
-	-I/root/.cache/node-gyp/20.19.5/deps/openssl/openssl/include \
-	-I/root/.cache/node-gyp/20.19.5/deps/uv/include \
-	-I/root/.cache/node-gyp/20.19.5/deps/zlib \
-	-I/root/.cache/node-gyp/20.19.5/deps/v8/include \
+	-I/home/runner/.cache/node-gyp/20.19.5/include/node \
+	-I/home/runner/.cache/node-gyp/20.19.5/src \
+	-I/home/runner/.cache/node-gyp/20.19.5/deps/openssl/config \
+	-I/home/runner/.cache/node-gyp/20.19.5/deps/openssl/openssl/include \
+	-I/home/runner/.cache/node-gyp/20.19.5/deps/uv/include \
+	-I/home/runner/.cache/node-gyp/20.19.5/deps/zlib \
+	-I/home/runner/.cache/node-gyp/20.19.5/deps/v8/include \
 	-I$(srcdir)/../nan
 
 DEFS_Release := \
@@ -83,13 +83,13 @@ CFLAGS_CC_Release := \
 	-std=gnu++17
 
 INCS_Release := \
-	-I/root/.cache/node-gyp/20.19.5/include/node \
-	-I/root/.cache/node-gyp/20.19.5/src \
-	-I/root/.cache/node-gyp/20.19.5/deps/openssl/config \
-	-I/root/.cache/node-gyp/20.19.5/deps/openssl/openssl/include \
-	-I/root/.cache/node-gyp/20.19.5/deps/uv/include \
-	-I/root/.cache/node-gyp/20.19.5/deps/zlib \
-	-I/root/.cache/node-gyp/20.19.5/deps/v8/include \
+	-I/home/runner/.cache/node-gyp/20.19.5/include/node \
+	-I/home/runner/.cache/node-gyp/20.19.5/src \
+	-I/home/runner/.cache/node-gyp/20.19.5/deps/openssl/config \
+	-I/home/runner/.cache/node-gyp/20.19.5/deps/openssl/openssl/include \
+	-I/home/runner/.cache/node-gyp/20.19.5/deps/uv/include \
+	-I/home/runner/.cache/node-gyp/20.19.5/deps/zlib \
+	-I/home/runner/.cache/node-gyp/20.19.5/deps/v8/include \
 	-I$(srcdir)/../nan
 
 OBJS := \
