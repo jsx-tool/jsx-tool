@@ -1,16 +1,17 @@
 name: Build node-pty Prebuilts
 
 on:
-  workflow_dispatch:
+  workflow_dispatch:  # Manual trigger
 
 permissions:
-  contents: write
+  contents: write  # Allow pushing commits
   
 jobs:
   build-native:
     strategy:
       matrix:
         include:
+          # Linux x64 - build natively
           - os: ubuntu-latest
             platform: linux
             arch: x64
@@ -24,7 +25,8 @@ jobs:
             arch: x64
             node: 22
           
-          - os: macos-13
+          # macOS x64 - build natively
+          - os: macos-13  # Use x64 runner
             platform: darwin
             arch: x64
             node: 18
@@ -37,7 +39,8 @@ jobs:
             arch: x64
             node: 22
             
-          - os: macos-latest
+          # macOS ARM64 - build natively on ARM runner
+          - os: macos-latest  # This is ARM64
             platform: darwin
             arch: arm64
             node: 18
@@ -126,12 +129,14 @@ jobs:
       
       - name: Build for Linux ARM64
         run: |
+          # Create the temp-build directory outside the container first
+          mkdir -p temp-build
+          
           docker run --rm --platform linux/arm64 \
-            -v $PWD:/work -w /work \
+            -v $PWD/temp-build:/work \
             node:${{ matrix.node }}-alpine sh -c "
               apk add --no-cache python3 make g++ linux-headers
-              mkdir -p temp-build
-              cd temp-build
+              cd /work
               cat > package.json << 'EOF'
           {
             \"name\": \"temp-build\",
@@ -145,7 +150,7 @@ jobs:
               ls -la node_modules/node-pty/build/
           "
           
-          # Create tarball
+          # Now outside the container, create the tarball
           cd temp-build
           mkdir -p artifact/build
           cp -r node_modules/node-pty/build/* artifact/build/
@@ -158,6 +163,9 @@ jobs:
           name: node-v${{ steps.abi.outputs.abi }}-linux-arm64
           path: node-*-linux-arm64.tar.gz
 
+  # Skip Windows for now - needs Windows SDK to build
+  # Users on Windows will need to build from source with proper build tools
+  
   commit:
     needs: [build-native, build-cross-compile]
     runs-on: ubuntu-latest
