@@ -1,6 +1,6 @@
 {
   "name": "@jsx-tool/jsx-tool",
-  "version": "0.0.28",
+  "version": "0.0.29",
   "description": "Development server for JSX Tool",
   "repository": {
     "type": "git",
@@ -34,6 +34,7 @@
     "dev:all": "concurrently \"npm run build:watch\" \"npm run build:esm:watch\"",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
+    "postinstall": "node bin/postinstall.js",
     "test": "jest --detectOpenHandles",
     "test:watch": "jest --watch",
     "prepare": "husky",
@@ -63,6 +64,7 @@
     "commander": "^14.0.0",
     "http-proxy": "^1.18.1",
     "node-pty": "^1.0.0",
+    "prebuild-install": "^7.1.2",
     "picocolors": "^1.1.1",
     "prettier": "^3.6.2",
     "reflect-metadata": "^0.2.2",

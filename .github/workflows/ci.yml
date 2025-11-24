@@ -1,87 +1,278 @@
 name: CI
-
 on:
   push:
     branches: [main, develop]
   pull_request:
     branches: [main, develop]
-
 jobs:
   test:
     runs-on: ubuntu-latest
-
     strategy:
       matrix:
         node-version: [18.x, 20.x, 21.x]
-
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-
       - name: Setup Node.js ${{ matrix.node-version }}
         uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node-version }}
           cache: "npm"
-
       - name: Install dependencies
         run: npm ci
         env:
           GITHUB_TOKEN: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
+      - name: Verify node-pty works
+        run: |
+          node -e "
+            const pty = require('node-pty');
+            console.log('✓ node-pty loaded successfully on Linux with Node ${{ matrix.node-version }}');
+          "
       - name: Run linter
         run: npm run lint
-
       - name: Run tests
         run: npm test
-
       - name: Build project
         run: npm run build
-
+      - name: Test package installation
+        run: |
+          npm pack
+          cd /tmp && rm -rf test-install && mkdir test-install && cd test-install
+          npm init -y
+          npm install $GITHUB_WORKSPACE/*.tgz
+          node -e "require('@jsx-tool/jsx-tool'); console.log('✓ Package installs correctly');"
       - name: Run security audit
         run: npm audit --audit-level=moderate
-
+  
   test-windows:
     runs-on: windows-latest
-
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: "20.x"
           cache: "npm"
-
       - name: Install dependencies
         run: npm ci
         env:
           GITHUB_TOKEN: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
+      - name: Verify node-pty works
+        run: |
+          node -e "const pty = require('node-pty'); console.log('✓ node-pty loaded successfully on Windows');"
       - name: Run tests
         run: npm test
-
       - name: Build project
         run: npm run build
-
+      - name: Test package installation
+        run: |
+          npm pack
+          node -e "
+            const fs = require('fs');
+            const path = require('path');
+            const { execSync } = require('child_process');
+            
+            // Find the tarball
+            const files = fs.readdirSync('.');
+            const tarball = files.find(f => f.endsWith('.tgz'));
+            if (!tarball) {
+              console.error('No tarball found');
+              process.exit(1);
+            }
+            const tarballPath = path.resolve(tarball);
+            console.log('Found tarball:', tarballPath);
+            
+            // Create temp directory
+            const tempDir = path.join(require('os').tmpdir(), 'test-install');
+            if (fs.existsSync(tempDir)) {
+              fs.rmSync(tempDir, { recursive: true, force: true });
+            }
+            fs.mkdirSync(tempDir);
+            
+            // Test installation
+            process.chdir(tempDir);
+            execSync('npm init -y', { stdio: 'inherit' });
+            execSync(\`npm install \${tarballPath}\`, { stdio: 'inherit' });
+            
+            // Verify package loads
+            try {
+              require('@jsx-tool/jsx-tool');
+              console.log('✓ Package loads correctly');
+            } catch (e) {
+              console.error('Failed to load package:', e.message);
+              process.exit(1);
+            }
+            
+            // Verify node-pty binary exists
+            const nodePtyPath = path.join('node_modules', 'node-pty', 'build', 'Release', 'pty.node');
+            if (fs.existsSync(nodePtyPath)) {
+              console.log('✓ node-pty binary found at:', nodePtyPath);
+              const stats = fs.statSync(nodePtyPath);
+              console.log('  Binary size:', stats.size, 'bytes');
+            } else {
+              console.error('✗ node-pty binary NOT found at expected location');
+              console.error('  Expected:', nodePtyPath);
+              
+              // Check if it's in Debug instead
+              const debugPath = path.join('node_modules', 'node-pty', 'build', 'Debug', 'pty.node');
+              if (fs.existsSync(debugPath)) {
+                console.log('  Found in Debug folder instead:', debugPath);
+              }
+              
+              // List what's actually in the build directory
+              const buildDir = path.join('node_modules', 'node-pty', 'build');
+              if (fs.existsSync(buildDir)) {
+                console.log('  Build directory contents:', fs.readdirSync(buildDir));
+              } else {
+                console.log('  Build directory does not exist');
+              }
+              
+              process.exit(1);
+            }
+            
+            // Check if this was compiled or downloaded
+            const buildLog = path.join('node_modules', '@jsx-tool', 'jsx-tool', 'node_modules', 'node-pty', 'build', 'build.log');
+            const compiledMarkers = [
+              path.join('node_modules', 'node-pty', 'build', 'Makefile'),
+              path.join('node_modules', 'node-pty', 'build', 'binding.Makefile'),
+              path.join('node_modules', 'node-pty', 'build', 'config.gypi')
+            ];
+            
+            const wasCompiled = compiledMarkers.some(f => fs.existsSync(f));
+            if (wasCompiled) {
+              console.log('⚠️  Binary was COMPILED (Python was used)');
+            } else {
+              console.log('✓ Binary was DOWNLOADED (no Python needed!)');
+            }
+            
+            // Test that node-pty actually works
+            try {
+              const pty = require('node-pty');
+              const shell = process.platform === 'win32' ? 'cmd.exe' : 'sh';
+              const ptyProcess = pty.spawn(shell, [], {
+                name: 'xterm-color',
+                cols: 80,
+                rows: 30
+              });
+              
+              console.log('✓ node-pty spawn successful, pid:', ptyProcess.pid);
+              ptyProcess.kill();
+            } catch (e) {
+              console.error('✗ node-pty spawn failed:', e.message);
+              process.exit(1);
+            }
+          "
+  
+  test-without-python:
+    runs-on: ubuntu-latest
+    container:
+      image: node:20-alpine
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      - name: Setup Alpine dependencies
+        run: |
+          # Install curl and tar for downloading prebuilts
+          apk add --no-cache curl tar bash
+      - name: Verify Python is NOT available
+        run: |
+          if which python || which python3; then
+            echo "ERROR: Python is available, test is invalid"
+            exit 1
+          fi
+          echo "✓ Confirmed: No Python available"
+      - name: Install dependencies (skip scripts)
+        run: npm ci --ignore-scripts
+      - name: Build project
+        run: npm run build
+      - name: Create package
+        run: npm pack
+      - name: Test installation without Python
+        run: |
+          mkdir /tmp/test-install
+          cd /tmp/test-install
+          npm init -y
+          echo "Installing package..."
+          npm install $GITHUB_WORKSPACE/*.tgz
+          
+          echo "Checking what got installed..."
+          ls -la node_modules/@jsx-tool/jsx-tool/
+          ls -la node_modules/node-pty/ || echo "node-pty not found"
+          ls -la node_modules/node-pty/build/ || echo "build dir not found"
+          ls -la node_modules/node-pty/build/Release/ || echo "Release dir not found"
+          
+          echo "Checking if postinstall ran..."
+          cat node_modules/@jsx-tool/jsx-tool/bin/postinstall.js | head -20
+          
+          echo "Testing binary existence..."
+          node -e "
+            const fs = require('fs');
+            const path = require('path');
+            
+            // Check if binary exists
+            const binaryPath = path.join('node_modules', 'node-pty', 'build', 'Release', 'pty.node');
+            console.log('Looking for binary at:', binaryPath);
+            
+            if (!fs.existsSync(binaryPath)) {
+              console.error('✗ Binary not found');
+              
+              // Check what's in node-pty directory
+              const nodePtyDir = path.join('node_modules', 'node-pty');
+              if (fs.existsSync(nodePtyDir)) {
+                console.log('node-pty directory contents:', fs.readdirSync(nodePtyDir));
+                
+                const buildDir = path.join(nodePtyDir, 'build');
+                if (fs.existsSync(buildDir)) {
+                  console.log('build directory contents:', fs.readdirSync(buildDir));
+                }
+              }
+              
+              process.exit(1);
+            }
+            
+            console.log('✓ Binary exists (downloaded without Python)');
+            
+            // Test that it actually works
+            try {
+              const pty = require('node-pty');
+              const ptyProcess = pty.spawn('sh', [], {});
+              console.log('✓ node-pty works WITHOUT Python! PID:', ptyProcess.pid);
+              ptyProcess.kill();
+            } catch (e) {
+              console.error('✗ node-pty failed:', e.message);
+              process.exit(1);
+            }
+          "
+  
   test-macos:
     runs-on: macos-latest
-
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: "20.x"
           cache: "npm"
-
       - name: Install dependencies
         run: npm ci
         env:
           GITHUB_TOKEN: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
+      - name: Verify node-pty works
+        run: |
+          node -e "
+            const pty = require('node-pty');
+            console.log('✓ node-pty loaded successfully on macOS');
+          "
       - name: Run tests
         run: npm test
-
       - name: Build project
         run: npm run build
+      - name: Test package installation
+        run: |
+          npm pack
+          cd /tmp && rm -rf test-install && mkdir test-install && cd test-install
+          npm init -y
+          npm install $GITHUB_WORKSPACE/*.tgz
+          node -e "require('@jsx-tool/jsx-tool'); console.log('✓ Package installs correctly');"
