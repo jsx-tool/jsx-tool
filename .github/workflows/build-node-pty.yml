@@ -1,0 +1,88 @@
+name: Build node-pty Prebuilts
+
+on:
+  workflow_dispatch:  # Manual trigger
+  
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            platform: linux
+            arch: x64
+          - os: macos-latest
+            platform: darwin
+            arch: x64
+          - os: windows-latest
+            platform: win32
+            arch: x64
+        node: [18, 20, 22]
+    
+    runs-on: ${{ matrix.os }}
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Setup Node.js ${{ matrix.node }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      
+      - name: Get Node ABI
+        id: abi
+        shell: bash
+        run: echo "abi=$(node -p 'process.versions.modules')" >> $GITHUB_OUTPUT
+      
+      - name: Build node-pty
+        run: |
+          npm init -y
+          npm install node-pty@1.0.0
+      
+      - name: Create tarball
+        shell: bash
+        run: |
+          mkdir -p artifact/build
+          cp -r node_modules/node-pty/build/* artifact/build/
+          cd artifact
+          tar -czf ../node-v${{ steps.abi.outputs.abi }}-${{ matrix.platform }}-${{ matrix.arch }}.tar.gz .
+      
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: node-v${{ steps.abi.outputs.abi }}-${{ matrix.platform }}-${{ matrix.arch }}
+          path: node-*.tar.gz
+  
+  commit:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      
+      - name: Organize prebuilts
+        run: |
+          mkdir -p vendor/node-pty-prebuilts
+          for dir in artifacts/*; do
+            if [ -d "$dir" ]; then
+              for file in "$dir"/*.tar.gz; do
+                if [ -f "$file" ]; then
+                  basename=$(basename "$file" .tar.gz)
+                  mkdir -p "vendor/node-pty-prebuilts/$basename"
+                  tar -xzf "$file" -C "vendor/node-pty-prebuilts/$basename"
+                fi
+              done
+            fi
+          done
+          ls -la vendor/node-pty-prebuilts/
+      
+      - name: Commit prebuilts
+        uses: EndBug/add-and-commit@v9
+        with:
+          add: 'vendor'
+          message: 'Update node-pty prebuilt binaries'
+          default_author: github_actions
