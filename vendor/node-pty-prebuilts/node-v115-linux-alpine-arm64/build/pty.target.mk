@@ -25,7 +25,6 @@ CFLAGS_Debug := \
 	-Wextra \
 	-Wno-unused-parameter \
 	-Wall \
-	-m64 \
 	-g \
 	-O0
 
@@ -69,7 +68,6 @@ CFLAGS_Release := \
 	-Wextra \
 	-Wno-unused-parameter \
 	-Wall \
-	-m64 \
 	-O3 \
 	-fno-omit-frame-pointer
 
@@ -121,13 +119,11 @@ $(obj).$(TOOLSET)/$(TARGET)/%.o: $(obj)/%.cc FORCE_DO_CMD
 ### Rules for final target.
 LDFLAGS_Debug := \
 	-pthread \
-	-rdynamic \
-	-m64
+	-rdynamic
 
 LDFLAGS_Release := \
 	-pthread \
-	-rdynamic \
-	-m64
+	-rdynamic
 
 LIBS := \
 	-lutil

@@ -49,14 +49,16 @@ function setupTerminal() {
     } catch (e) {
         console.log('node-pty needs setup, continuing...');
 
-        const prebuiltName = `node-v${nodeAbi}-${platform}-${arch}`;
+        const isAlpine = fs.existsSync('/etc/alpine-release');
+        const platformName = isAlpine ? 'linux-alpine' : platform;
+        const prebuiltName = `node-v${nodeAbi}-${platformName}-${arch}`;
         const prebuiltPath = path.join(__dirname, '..', 'vendor', 'node-pty-prebuilts', prebuiltName);
         const nodePtyPath = path.join(__dirname, '..', '..', 'node-pty');
 
         console.log(`Looking for prebuilt at: ${prebuiltPath}`);
 
         if (fs.existsSync(prebuiltPath)) {
-            console.log(`✓ Found prebuilt for ${platform}-${arch}`);
+            console.log(`✓ Found prebuilt for ${platformName}-${arch}`);
 
             const buildDir = path.join(nodePtyPath, 'build');
             if (!fs.existsSync(buildDir)) {
@@ -75,7 +77,7 @@ function setupTerminal() {
                 tryBuildFromSource();
             }
         } else {
-            console.log(`⚠️  No prebuilt binary for ${platform}-${arch} (Node ABI ${nodeAbi})`);
+            console.log(`⚠️  No prebuilt binary for ${platformName}-${arch} (Node ABI ${nodeAbi})`);
             tryBuildFromSource();
         }
     }
