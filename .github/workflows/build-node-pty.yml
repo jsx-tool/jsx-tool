@@ -14,9 +14,15 @@ jobs:
           - os: ubuntu-latest
             platform: linux
             arch: x64
+          - os: ubuntu-latest
+            platform: linux
+            arch: arm64
           - os: macos-latest
             platform: darwin
             arch: x64
+          - os: macos-latest
+            platform: darwin
+            arch: arm64
         node: [18, 20, 22]
     
     runs-on: ${{ matrix.os }}
@@ -29,12 +35,79 @@ jobs:
         with:
           node-version: ${{ matrix.node }}
       
+      - name: Setup QEMU for ARM64 cross-compilation (Linux)
+        if: matrix.platform == 'linux' && matrix.arch == 'arm64'
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: linux/arm64
+      
       - name: Get Node ABI
         id: abi
         shell: bash
         run: echo "abi=$(node -p 'process.versions.modules')" >> $GITHUB_OUTPUT
       
-      - name: Build node-pty from source
+      - name: Build node-pty for ARM64 (Linux)
+        if: matrix.platform == 'linux' && matrix.arch == 'arm64'
+        run: |
+          docker run --rm --platform linux/arm64 \
+            -v $PWD:/work -w /work \
+            node:${{ matrix.node }}-alpine sh -c "
+              apk add --no-cache python3 make g++ linux-headers
+              mkdir -p temp-build
+              cd temp-build
+              cat > package.json << 'EOF'
+          {
+            \"name\": \"temp-build\",
+            \"version\": \"1.0.0\",
+            \"dependencies\": {
+              \"node-pty\": \"1.0.0\"
+            }
+          }
+          EOF
+              npm install --build-from-source node-pty@1.0.0
+              ls -la node_modules/node-pty/build/
+          "
+          
+          # Create tarball
+          cd temp-build
+          mkdir -p artifact/build
+          cp -r node_modules/node-pty/build/* artifact/build/
+          cd artifact
+          tar -czf ../../node-v${{ steps.abi.outputs.abi }}-${{ matrix.platform }}-${{ matrix.arch }}.tar.gz .
+      
+      - name: Build node-pty for ARM64 (macOS)
+        if: matrix.platform == 'darwin' && matrix.arch == 'arm64'
+        run: |
+          # Cross-compile for ARM64 on macOS
+          export npm_config_arch=arm64
+          export npm_config_target_arch=arm64
+          export CC="clang -arch arm64"
+          export CXX="clang++ -arch arm64"
+          
+          mkdir -p temp-build
+          cd temp-build
+          
+          cat > package.json << 'EOF'
+          {
+            "name": "temp-build",
+            "version": "1.0.0",
+            "dependencies": {
+              "node-pty": "1.0.0"
+            }
+          }
+          EOF
+          
+          npm install --build-from-source node-pty@1.0.0
+          ls -la node_modules/node-pty/build/
+          
+          # Create tarball
+          mkdir -p artifact/build
+          cp -r node_modules/node-pty/build/* artifact/build/
+          cd artifact
+          tar -czf ../../node-v${{ steps.abi.outputs.abi }}-${{ matrix.platform }}-${{ matrix.arch }}.tar.gz .
+      
+      - name: Build node-pty from source (x64)
+        if: matrix.arch == 'x64'
         shell: bash
         run: |
           # Create a temporary build directory
@@ -57,11 +130,8 @@ jobs:
           
           # Verify build directory exists
           ls -la node_modules/node-pty/build/
-      
-      - name: Create tarball
-        shell: bash
-        run: |
-          cd temp-build
+          
+          # Create tarball
           mkdir -p artifact/build
           cp -r node_modules/node-pty/build/* artifact/build/
           cd artifact
@@ -77,6 +147,7 @@ jobs:
     strategy:
       matrix:
         node: [18, 20, 22]
+        arch: [x64, arm64]
     
     runs-on: ubuntu-latest
     
@@ -101,46 +172,57 @@ jobs:
           # Initialize npm project
           npm init -y
           
+          # Set architecture for npm
+          npm config set target_arch ${{ matrix.arch }}
+          
           # Install node-pty to get the Windows prebuilt
-          npm install node-pty@1.0.0
+          npm install node-pty@1.0.0 || true
           
           # The Windows prebuilt should be downloaded automatically
           # Check what we got
           echo "Contents of node_modules/node-pty:"
-          ls -la node_modules/node-pty/
+          ls -la node_modules/node-pty/ || echo "node-pty not found"
           
           echo "Contents of build directory:"
           ls -la node_modules/node-pty/build/ || echo "No build directory"
           
           echo "Looking for prebuilt binaries:"
-          find node_modules/node-pty -name "*.node" -type f
+          find node_modules/node-pty -name "*.node" -type f || echo "No .node files found"
           
           # Create artifact structure
           mkdir -p ../artifact/build/Release
           
-          # Copy the Windows prebuilt files
-          if [ -d "node_modules/node-pty/build/Release" ]; then
+          # Try to download from GitHub releases as primary method
+          echo "Attempting to download from GitHub releases..."
+          ARCH_NAME=${{ matrix.arch }}
+          if [ "$ARCH_NAME" = "arm64" ]; then
+            ARCH_NAME="arm64"  # Windows uses arm64 for ARM
+          fi
+          
+          curl -L "https://github.com/microsoft/node-pty/releases/download/v1.0.0/node-pty-v1.0.0-node-v${{ steps.abi.outputs.abi }}-win32-${ARCH_NAME}.tar.gz" \
+            -o prebuilt.tar.gz || echo "Direct download failed"
+          
+          if [ -f prebuilt.tar.gz ] && [ -s prebuilt.tar.gz ]; then
+            echo "Downloaded prebuilt from GitHub"
+            tar -xzf prebuilt.tar.gz -C ../artifact/ || echo "Failed to extract"
+          elif [ -d "node_modules/node-pty/build/Release" ]; then
             cp -r node_modules/node-pty/build/Release/* ../artifact/build/Release/
           elif [ -f "node_modules/node-pty/lib/pty.node" ]; then
-            # Sometimes prebuilts are in lib directory
             cp node_modules/node-pty/lib/*.node ../artifact/build/Release/
           else
-            echo "Warning: No Windows prebuilt found"
-            # Download from GitHub releases as fallback
-            curl -L "https://github.com/microsoft/node-pty/releases/download/v1.0.0/node-pty-v1.0.0-node-v${{ steps.abi.outputs.abi }}-win32-x64.tar.gz" -o prebuilt.tar.gz || true
-            if [ -f prebuilt.tar.gz ]; then
-              tar -xzf prebuilt.tar.gz -C ../artifact/
-            fi
+            echo "Warning: No Windows prebuilt found for ${{ matrix.arch }}"
+            mkdir -p ../artifact
+            echo "No prebuilt available" > ../artifact/missing.txt
           fi
           
           # Create tarball
           cd ../artifact
-          tar -czf ../node-v${{ steps.abi.outputs.abi }}-win32-x64.tar.gz .
+          tar -czf ../node-v${{ steps.abi.outputs.abi }}-win32-${{ matrix.arch }}.tar.gz .
       
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: node-v${{ steps.abi.outputs.abi }}-win32-x64
+          name: node-v${{ steps.abi.outputs.abi }}-win32-${{ matrix.arch }}
           path: node-*.tar.gz
   
   commit:
@@ -166,6 +248,12 @@ jobs:
                   basename=$(basename "$file" .tar.gz)
                   mkdir -p "vendor/node-pty-prebuilts/$basename"
                   tar -xzf "$file" -C "vendor/node-pty-prebuilts/$basename"
+                  
+                  # Check if it's a missing prebuilt
+                  if [ -f "vendor/node-pty-prebuilts/$basename/missing.txt" ]; then
+                    echo "⚠️  No prebuilt available for $basename"
+                    rm -rf "vendor/node-pty-prebuilts/$basename"
+                  fi
                 fi
               done
             fi
@@ -174,15 +262,19 @@ jobs:
           echo "Successfully extracted prebuilts:"
           ls -la vendor/node-pty-prebuilts/
           
-          # Verify we have all expected combinations
+          # Verify we have expected combinations
+          echo ""
+          echo "Coverage report:"
           for node_abi in 108 115 127; do
             for platform in linux darwin win32; do
-              dir="vendor/node-pty-prebuilts/node-v${node_abi}-${platform}-x64"
-              if [ -d "$dir" ]; then
-                echo "✓ Found $dir"
-              else
-                echo "✗ Missing $dir"
-              fi
+              for arch in x64 arm64; do
+                dir="vendor/node-pty-prebuilts/node-v${node_abi}-${platform}-${arch}"
+                if [ -d "$dir" ]; then
+                  echo "✓ $dir"
+                else
+                  echo "✗ Missing: $dir"
+                fi
+              done
             done
           done
       
@@ -190,5 +282,5 @@ jobs:
         uses: EndBug/add-and-commit@v9
         with:
           add: 'vendor'
-          message: 'Update node-pty prebuilt binaries'
+          message: 'Update node-pty prebuilt binaries (multi-arch)'
           default_author: github_actions
