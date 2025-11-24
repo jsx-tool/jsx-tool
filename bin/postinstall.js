@@ -1,132 +1,78 @@
 #!/usr/bin/env node
 
-const { spawn } = require('child_process');
-const path = require('path');
 const fs = require('fs');
+const path = require('path');
 
-const originalStderrWrite = process.stderr.write;
-function suppressErrors() {
-    process.stderr.write = () => { };
-}
-function restoreErrors() {
-    process.stderr.write = originalStderrWrite;
-}
-
-async function runCommand(command, args, cwd) {
-    return new Promise((resolve) => {
-        const child = spawn(command, args, {
-            cwd,
-            stdio: 'pipe',
-            shell: process.platform === 'win32'
-        });
-
-        child.on('close', (code) => {
-            resolve(code === 0);
-        });
-
-        child.on('error', () => {
-            resolve(false);
-        });
-    });
-}
-
-async function checkNodePty() {
-    suppressErrors();
-    try {
-        require('node-pty');
-        restoreErrors();
-        return true;
-    } catch (e) {
-        restoreErrors();
-        return false;
-    }
-}
-
-async function setupNodePty() {
-    if (await checkNodePty()) {
-        console.log('✓ node-pty is already working');
-        return true;
-    }
-
+function setupNodePty() {
     console.log('Setting up terminal support...');
 
-    let nodePtyPath;
-    try {
-        nodePtyPath = require.resolve('node-pty/package.json');
-    } catch (e) {
-        console.log('Installing node-pty...');
-        const installSuccess = await runCommand('npm', ['install', 'node-pty', '--no-save', '--no-package-lock'], process.cwd());
+    let nodePtyDir;
 
-        if (!installSuccess) {
-            console.log('ℹ️  Terminal support is optional. Skipping installation.');
-            return false;
-        }
+    nodePtyDir = path.join(__dirname, '..', '..', 'node-pty');
 
+    if (!fs.existsSync(nodePtyDir)) {
         try {
-            nodePtyPath = require.resolve('node-pty/package.json');
+            const nodePtyPath = require.resolve('node-pty/package.json');
+            nodePtyDir = path.dirname(nodePtyPath);
         } catch (e) {
-            console.log('ℹ️  Terminal support requires additional setup.');
-            return false;
+            console.log('⚠️  node-pty is not installed. Terminal features will be unavailable.');
+            return;
         }
-    }
-
-    const nodePtyDir = path.dirname(nodePtyPath);
-
-    const rebuildSuccess = await runCommand('npm', ['rebuild', 'node-pty'], process.cwd());
-
-    if (rebuildSuccess && await checkNodePty()) {
-        console.log('✓ Terminal support enabled');
-        return true;
-    }
-
-    const nodeAbi = process.versions.modules;
-    const platform = process.platform;
-    const arch = process.arch;
-    const nodePtyPackage = require(nodePtyPath);
-    const version = nodePtyPackage.version;
-
-    const fileName = `node-v${nodeAbi}-${platform}-${arch}.tar.gz`;
-    const downloadUrl = `https://github.com/microsoft/node-pty/releases/download/v${version}/${fileName}`;
-
-    const hasCurl = await runCommand('which', ['curl'], process.cwd());
-    const hasWget = await runCommand('which', ['wget'], process.cwd());
-
-    if (hasCurl) {
-        await runCommand(
-            'sh',
-            ['-c', `curl -sL "${downloadUrl}" 2>/dev/null | tar -xz -C "${nodePtyDir}" --strip-components=2 2>/dev/null`],
-            process.cwd()
-        );
-    } else if (hasWget) {
-        await runCommand(
-            'sh',
-            ['-c', `wget -qO- "${downloadUrl}" 2>/dev/null | tar -xz -C "${nodePtyDir}" --strip-components=2 2>/dev/null`],
-            process.cwd()
-        );
     }
 
     try {
         delete require.cache[require.resolve('node-pty')];
-        delete require.cache[require.resolve('node-pty/lib/index.js')];
-        delete require.cache[require.resolve('node-pty/lib/unixTerminal.js')];
+        require('node-pty');
+        console.log('✓ Terminal support is already enabled');
+        return;
     } catch (e) {
+        console.log('node-pty needs setup, continuing...');
     }
 
-    if (await checkNodePty()) {
+    const platform = process.platform;
+    const arch = process.arch;
+    const nodeAbi = process.versions.modules;
+
+    const prebuiltName = `node-v${nodeAbi}-${platform}-${arch}`;
+    const vendorDir = path.join(__dirname, '..', 'vendor', 'node-pty-prebuilts', prebuiltName);
+    const prebuiltBinary = path.join(vendorDir, 'build', 'Release', 'pty.node');
+
+    console.log('Looking for prebuilt at:', prebuiltBinary);
+
+    if (!fs.existsSync(prebuiltBinary)) {
+        console.log(`⚠️  No prebuilt binary for ${platform}-${arch} (Node ABI ${nodeAbi})`);
+        console.log('   Terminal features will be unavailable.');
+        return;
+    }
+
+    const targetDir = path.join(nodePtyDir, 'build', 'Release');
+    const targetBinary = path.join(targetDir, 'pty.node');
+
+    console.log('Copying prebuilt to:', targetBinary);
+
+    try {
+        fs.mkdirSync(targetDir, { recursive: true });
+        fs.copyFileSync(prebuiltBinary, targetBinary);
+
+        if (platform === 'darwin') {
+            const spawnHelper = path.join(vendorDir, 'build', 'Release', 'spawn-helper');
+            if (fs.existsSync(spawnHelper)) {
+                const targetHelper = path.join(targetDir, 'spawn-helper');
+                fs.copyFileSync(spawnHelper, targetHelper);
+                fs.chmodSync(targetHelper, 0o755);
+                console.log('Also copied spawn-helper for macOS');
+            }
+        }
+
+        delete require.cache[require.resolve('node-pty')];
+        require('node-pty');
         console.log('✓ Terminal support enabled');
-        return true;
+    } catch (e) {
+        console.error('⚠️  Could not enable terminal support:', e.message);
     }
-
-    console.log('ℹ️  Terminal support requires additional setup.');
-    console.log('   Run "npm rebuild node-pty" to enable terminal features.');
-
-    return false;
 }
 
 if (require.main === module) {
-    setupNodePty().then(() => {
-        process.exit(0);
-    }).catch(() => {
-        process.exit(0);
-    });
+    setupNodePty();
+    process.exit(0);
 }
