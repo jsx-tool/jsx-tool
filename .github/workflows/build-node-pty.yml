@@ -29,23 +29,66 @@ jobs:
         with:
           node-version: ${{ matrix.node }}
       
+      - name: Install Python (Windows)
+        if: runner.os == 'Windows'
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.x'
+      
+      - name: Install Visual Studio Build Tools (Windows)
+        if: runner.os == 'Windows'
+        uses: microsoft/setup-msbuild@v1
+      
       - name: Get Node ABI
         id: abi
         shell: bash
         run: echo "abi=$(node -p 'process.versions.modules')" >> $GITHUB_OUTPUT
       
-      - name: Build node-pty
+      - name: Build node-pty from source
+        shell: bash
         run: |
-          npm init -y
-          npm install node-pty@1.0.0
+          # Create a temporary build directory
+          mkdir -p temp-build
+          cd temp-build
+          
+          # Create minimal package.json for building
+          cat > package.json << 'EOF'
+          {
+            "name": "temp-build",
+            "version": "1.0.0",
+            "dependencies": {
+              "node-pty": "1.0.0"
+            }
+          }
+          EOF
+          
+          # Force rebuild from source
+          if [[ "${{ runner.os }}" == "Windows" ]]; then
+            npm install --build-from-source node-pty@1.0.0
+          else
+            npm install --build-from-source node-pty@1.0.0
+          fi
+          
+          # Verify build directory exists
+          ls -la node_modules/node-pty/build/ || echo "Build directory not found"
       
       - name: Create tarball
         shell: bash
         run: |
-          mkdir -p artifact/build
-          cp -r node_modules/node-pty/build/* artifact/build/
-          cd artifact
-          tar -czf ../node-v${{ steps.abi.outputs.abi }}-${{ matrix.platform }}-${{ matrix.arch }}.tar.gz .
+          cd temp-build
+          
+          # Check if build exists
+          if [ -d "node_modules/node-pty/build" ]; then
+            mkdir -p artifact/build
+            cp -r node_modules/node-pty/build/* artifact/build/
+            cd artifact
+            tar -czf ../../node-v${{ steps.abi.outputs.abi }}-${{ matrix.platform }}-${{ matrix.arch }}.tar.gz .
+          else
+            echo "Build directory not found, creating empty artifact"
+            mkdir -p artifact
+            echo "Build failed for Node ${{ matrix.node }} on ${{ matrix.platform }}" > artifact/error.txt
+            tar -czf ../node-v${{ steps.abi.outputs.abi }}-${{ matrix.platform }}-${{ matrix.arch }}.tar.gz artifact/
+          fi
       
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -56,6 +99,7 @@ jobs:
   commit:
     needs: build
     runs-on: ubuntu-latest
+    if: success()
     steps:
       - uses: actions/checkout@v4
       
@@ -74,10 +118,19 @@ jobs:
                   basename=$(basename "$file" .tar.gz)
                   mkdir -p "vendor/node-pty-prebuilts/$basename"
                   tar -xzf "$file" -C "vendor/node-pty-prebuilts/$basename"
+                  
+                  # Check if it contains an error file
+                  if [ -f "vendor/node-pty-prebuilts/$basename/artifact/error.txt" ]; then
+                    echo "Build failed for $basename:"
+                    cat "vendor/node-pty-prebuilts/$basename/artifact/error.txt"
+                    rm -rf "vendor/node-pty-prebuilts/$basename"
+                  fi
                 fi
               done
             fi
           done
+          
+          echo "Successfully extracted prebuilts:"
           ls -la vendor/node-pty-prebuilts/
       
       - name: Commit prebuilts
