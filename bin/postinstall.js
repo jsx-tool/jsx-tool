@@ -2,77 +2,141 @@
 
 const fs = require('fs');
 const path = require('path');
+const { execSync } = require('child_process');
 
-function setupNodePty() {
+if (process.env.CI || process.env.NODE_ENV === 'production') {
+    process.exit(0);
+}
+
+console.log('Running postinstall...');
+
+function setupTerminal() {
     console.log('Setting up terminal support...');
-
-    let nodePtyDir;
-
-    nodePtyDir = path.join(__dirname, '..', '..', 'node-pty');
-
-    if (!fs.existsSync(nodePtyDir)) {
-        try {
-            const nodePtyPath = require.resolve('node-pty/package.json');
-            nodePtyDir = path.dirname(nodePtyPath);
-        } catch (e) {
-            console.log('⚠️  node-pty is not installed. Terminal features will be unavailable.');
-            return;
-        }
-    }
-
-    try {
-        delete require.cache[require.resolve('node-pty')];
-        require('node-pty');
-        console.log('✓ Terminal support is already enabled');
-        return;
-    } catch (e) {
-        console.log('node-pty needs setup, continuing...');
-    }
 
     const platform = process.platform;
     const arch = process.arch;
     const nodeAbi = process.versions.modules;
 
-    const prebuiltName = `node-v${nodeAbi}-${platform}-${arch}`;
-    const vendorDir = path.join(__dirname, '..', 'vendor', 'node-pty-prebuilts', prebuiltName);
-    const prebuiltBinary = path.join(vendorDir, 'build', 'Release', 'pty.node');
-
-    console.log('Looking for prebuilt at:', prebuiltBinary);
-
-    if (!fs.existsSync(prebuiltBinary)) {
-        console.log(`⚠️  No prebuilt binary for ${platform}-${arch} (Node ABI ${nodeAbi})`);
-        console.log('   Terminal features will be unavailable.');
-        return;
-    }
-
-    const targetDir = path.join(nodePtyDir, 'build', 'Release');
-    const targetBinary = path.join(targetDir, 'pty.node');
-
-    console.log('Copying prebuilt to:', targetBinary);
-
-    try {
-        fs.mkdirSync(targetDir, { recursive: true });
-        fs.copyFileSync(prebuiltBinary, targetBinary);
-
-        if (platform === 'darwin') {
-            const spawnHelper = path.join(vendorDir, 'build', 'Release', 'spawn-helper');
-            if (fs.existsSync(spawnHelper)) {
-                const targetHelper = path.join(targetDir, 'spawn-helper');
-                fs.copyFileSync(spawnHelper, targetHelper);
-                fs.chmodSync(targetHelper, 0o755);
-                console.log('Also copied spawn-helper for macOS');
+    if (platform === 'win32') {
+        console.log('Windows detected - using standard npm installation for node-pty');
+        try {
+            require('node-pty');
+            console.log('✓ node-pty is already installed and working');
+            return;
+        } catch (e) {
+            console.log('Installing node-pty (this may compile from source if you have build tools)...');
+            try {
+                execSync('npm install node-pty@1.0.0', {
+                    stdio: 'inherit',
+                    cwd: path.resolve(__dirname, '..')
+                });
+                console.log('✓ node-pty installed successfully');
+                return;
+            } catch (installError) {
+                console.log('⚠️  Could not install node-pty on Windows');
+                console.log('   Terminal features will be unavailable.');
+                console.log('   To enable terminal support, install Windows build tools:');
+                console.log('   npm install --global windows-build-tools');
+                return;
             }
         }
+    }
 
-        delete require.cache[require.resolve('node-pty')];
+    try {
         require('node-pty');
-        console.log('✓ Terminal support enabled');
+        console.log('✓ node-pty is already working');
+        return;
     } catch (e) {
-        console.error('⚠️  Could not enable terminal support:', e.message);
+        console.log('node-pty needs setup, continuing...');
+
+        const prebuiltName = `node-v${nodeAbi}-${platform}-${arch}`;
+        const prebuiltPath = path.join(__dirname, '..', 'vendor', 'node-pty-prebuilts', prebuiltName);
+        const nodePtyPath = path.join(__dirname, '..', '..', 'node-pty');
+
+        console.log(`Looking for prebuilt at: ${prebuiltPath}`);
+
+        if (fs.existsSync(prebuiltPath)) {
+            console.log(`✓ Found prebuilt for ${platform}-${arch}`);
+
+            const buildDir = path.join(nodePtyPath, 'build');
+            if (!fs.existsSync(buildDir)) {
+                fs.mkdirSync(buildDir, { recursive: true });
+            }
+
+            copyRecursiveSync(path.join(prebuiltPath, 'build'), buildDir);
+
+            console.log('✓ Prebuilt binary copied successfully');
+
+            try {
+                require('node-pty');
+                console.log('✓ node-pty is working!');
+            } catch (testError) {
+                console.log('⚠️  Prebuilt binary did not work, will try building from source');
+                tryBuildFromSource();
+            }
+        } else {
+            console.log(`⚠️  No prebuilt binary for ${platform}-${arch} (Node ABI ${nodeAbi})`);
+            tryBuildFromSource();
+        }
     }
 }
 
-if (require.main === module) {
-    setupNodePty();
-    process.exit(0);
+function tryBuildFromSource() {
+    console.log('Attempting to build node-pty from source...');
+    try {
+        execSync('npm rebuild node-pty', {
+            stdio: 'inherit',
+            cwd: path.resolve(__dirname, '..')
+        });
+
+        try {
+            require('node-pty');
+            console.log('✓ Successfully built node-pty from source');
+        } catch (e) {
+            console.log('⚠️  Could not build node-pty from source');
+            console.log('   Terminal features will be unavailable.');
+        }
+    } catch (buildError) {
+        console.log('⚠️  Build failed. Terminal features will be unavailable.');
+        console.log('   To enable terminal support, install build tools:');
+        console.log('   - macOS: Install Xcode Command Line Tools');
+        console.log('   - Linux: sudo apt-get install build-essential python3');
+    }
 }
+
+function copyRecursiveSync(src, dest) {
+    const exists = fs.existsSync(src);
+    const stats = exists && fs.statSync(src);
+    const isDirectory = exists && stats.isDirectory();
+
+    if (isDirectory) {
+        if (!fs.existsSync(dest)) {
+            fs.mkdirSync(dest, { recursive: true });
+        }
+        fs.readdirSync(src).forEach(childItemName => {
+            copyRecursiveSync(
+                path.join(src, childItemName),
+                path.join(dest, childItemName)
+            );
+        });
+    } else {
+        fs.copyFileSync(src, dest);
+    }
+}
+
+function testNodePty() {
+    console.log('Testing node-pty...');
+    try {
+        const pty = require('node-pty');
+        const shell = process.platform === 'win32' ? 'cmd.exe' : 'sh';
+        const ptyProcess = pty.spawn(shell, [], {});
+        console.log('✓ node-pty test successful! PID:', ptyProcess.pid);
+        ptyProcess.kill();
+    } catch (e) {
+        console.error('✗ node-pty test failed:', e.message);
+    }
+}
+
+setupTerminal();
+
+testNodePty();

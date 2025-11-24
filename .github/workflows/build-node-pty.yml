@@ -1,17 +1,16 @@
 name: Build node-pty Prebuilts
 
 on:
-  workflow_dispatch:  # Manual trigger
+  workflow_dispatch:
 
 permissions:
-  contents: write  # Allow pushing commits
+  contents: write
   
 jobs:
   build-native:
     strategy:
       matrix:
         include:
-          # Linux x64 - build natively
           - os: ubuntu-latest
             platform: linux
             arch: x64
@@ -25,8 +24,7 @@ jobs:
             arch: x64
             node: 22
           
-          # macOS x64 - build natively
-          - os: macos-13  # Use x64 runner
+          - os: macos-13
             platform: darwin
             arch: x64
             node: 18
@@ -39,8 +37,7 @@ jobs:
             arch: x64
             node: 22
             
-          # macOS ARM64 - build natively on ARM runner
-          - os: macos-latest  # This is ARM64
+          - os: macos-latest
             platform: darwin
             arch: arm64
             node: 18
@@ -161,68 +158,8 @@ jobs:
           name: node-v${{ steps.abi.outputs.abi }}-linux-arm64
           path: node-*-linux-arm64.tar.gz
 
-  download-windows:
-    strategy:
-      matrix:
-        node: [18, 20, 22]
-    
-    runs-on: ubuntu-latest
-    
-    steps:
-      - uses: actions/checkout@v4
-      
-      - name: Setup Node.js ${{ matrix.node }}
-        uses: actions/setup-node@v4
-        with:
-          node-version: ${{ matrix.node }}
-      
-      - name: Get Node ABI
-        id: abi
-        run: echo "abi=$(node -p 'process.versions.modules')" >> $GITHUB_OUTPUT
-      
-      - name: Download Windows x64 prebuilt
-        run: |
-          mkdir -p artifact/build/Release
-          
-          # Try downloading from GitHub releases
-          echo "Downloading Windows x64 prebuilt for Node ABI ${{ steps.abi.outputs.abi }}..."
-          
-          # node-pty 1.0.0 might have prebuilts available
-          curl -L "https://github.com/microsoft/node-pty/releases/download/v1.0.0/node-pty-v1.0.0-node-v${{ steps.abi.outputs.abi }}-win32-x64.tar.gz" \
-            -o prebuilt.tar.gz || true
-          
-          if [ -f prebuilt.tar.gz ] && [ -s prebuilt.tar.gz ]; then
-            echo "Downloaded prebuilt from GitHub"
-            tar -xzf prebuilt.tar.gz -C artifact/
-          else
-            echo "No prebuilt available, trying npm package..."
-            
-            # Fallback: Install from npm and hope it downloads a prebuilt
-            npm init -y
-            npm install node-pty@1.0.0 || true
-            
-            if [ -d "node_modules/node-pty/build/Release" ]; then
-              cp -r node_modules/node-pty/build/Release/* artifact/build/Release/
-            elif [ -f "node_modules/node-pty/lib/pty.node" ]; then
-              cp node_modules/node-pty/lib/*.node artifact/build/Release/
-            else
-              echo "Warning: No Windows prebuilt found"
-              echo "No prebuilt available" > artifact/missing.txt
-            fi
-          fi
-          
-          # Create tarball
-          cd artifact
-          tar -czf ../node-v${{ steps.abi.outputs.abi }}-win32-x64.tar.gz .
-      
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: node-v${{ steps.abi.outputs.abi }}-win32-x64
-          path: node-*.tar.gz
-  
   commit:
-    needs: [build-native, build-cross-compile, download-windows]
+    needs: [build-native, build-cross-compile]
     runs-on: ubuntu-latest
     if: success()
     steps:
