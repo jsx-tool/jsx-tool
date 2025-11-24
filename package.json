@@ -1,6 +1,6 @@
 {
   "name": "@jsx-tool/jsx-tool",
-  "version": "0.0.29",
+  "version": "0.0.30",
   "description": "Development server for JSX Tool",
   "repository": {
     "type": "git",
@@ -37,7 +37,8 @@
     "test": "jest --detectOpenHandles",
     "test:watch": "jest --watch",
     "prepare": "husky",
-    "sync-version": "node scripts/sync-version.js"
+    "sync-version": "node scripts/sync-version.js",
+    "postinstall": "npm rebuild node-pty --silent || true"
   },
   "keywords": [
     "jsx-tool",
