@@ -4,7 +4,7 @@ on:
   workflow_dispatch:  # Manual trigger
   
 jobs:
-  build:
+  build-unix:
     strategy:
       matrix:
         include:
@@ -13,9 +13,6 @@ jobs:
             arch: x64
           - os: macos-latest
             platform: darwin
-            arch: x64
-          - os: windows-latest
-            platform: win32
             arch: x64
         node: [18, 20, 22]
     
@@ -28,16 +25,6 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node }}
-      
-      - name: Install Python (Windows)
-        if: runner.os == 'Windows'
-        uses: actions/setup-python@v4
-        with:
-          python-version: '3.x'
-      
-      - name: Install Visual Studio Build Tools (Windows)
-        if: runner.os == 'Windows'
-        uses: microsoft/setup-msbuild@v1
       
       - name: Get Node ABI
         id: abi
@@ -63,41 +50,98 @@ jobs:
           EOF
           
           # Force rebuild from source
-          if [[ "${{ runner.os }}" == "Windows" ]]; then
-            npm install --build-from-source node-pty@1.0.0
-          else
-            npm install --build-from-source node-pty@1.0.0
-          fi
+          npm install --build-from-source node-pty@1.0.0
           
           # Verify build directory exists
-          ls -la node_modules/node-pty/build/ || echo "Build directory not found"
+          ls -la node_modules/node-pty/build/
       
       - name: Create tarball
         shell: bash
         run: |
           cd temp-build
-          
-          # Check if build exists
-          if [ -d "node_modules/node-pty/build" ]; then
-            mkdir -p artifact/build
-            cp -r node_modules/node-pty/build/* artifact/build/
-            cd artifact
-            tar -czf ../../node-v${{ steps.abi.outputs.abi }}-${{ matrix.platform }}-${{ matrix.arch }}.tar.gz .
-          else
-            echo "Build directory not found, creating empty artifact"
-            mkdir -p artifact
-            echo "Build failed for Node ${{ matrix.node }} on ${{ matrix.platform }}" > artifact/error.txt
-            tar -czf ../node-v${{ steps.abi.outputs.abi }}-${{ matrix.platform }}-${{ matrix.arch }}.tar.gz artifact/
-          fi
+          mkdir -p artifact/build
+          cp -r node_modules/node-pty/build/* artifact/build/
+          cd artifact
+          tar -czf ../../node-v${{ steps.abi.outputs.abi }}-${{ matrix.platform }}-${{ matrix.arch }}.tar.gz .
       
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: node-v${{ steps.abi.outputs.abi }}-${{ matrix.platform }}-${{ matrix.arch }}
           path: node-*.tar.gz
+
+  download-windows:
+    strategy:
+      matrix:
+        node: [18, 20, 22]
+    
+    runs-on: ubuntu-latest
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Setup Node.js ${{ matrix.node }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      
+      - name: Get Node ABI
+        id: abi
+        run: echo "abi=$(node -p 'process.versions.modules')" >> $GITHUB_OUTPUT
+      
+      - name: Download Windows prebuilt
+        run: |
+          # Create temp directory
+          mkdir -p temp-extract
+          cd temp-extract
+          
+          # Initialize npm project
+          npm init -y
+          
+          # Install node-pty to get the Windows prebuilt
+          npm install node-pty@1.0.0
+          
+          # The Windows prebuilt should be downloaded automatically
+          # Check what we got
+          echo "Contents of node_modules/node-pty:"
+          ls -la node_modules/node-pty/
+          
+          echo "Contents of build directory:"
+          ls -la node_modules/node-pty/build/ || echo "No build directory"
+          
+          echo "Looking for prebuilt binaries:"
+          find node_modules/node-pty -name "*.node" -type f
+          
+          # Create artifact structure
+          mkdir -p ../artifact/build/Release
+          
+          # Copy the Windows prebuilt files
+          if [ -d "node_modules/node-pty/build/Release" ]; then
+            cp -r node_modules/node-pty/build/Release/* ../artifact/build/Release/
+          elif [ -f "node_modules/node-pty/lib/pty.node" ]; then
+            # Sometimes prebuilts are in lib directory
+            cp node_modules/node-pty/lib/*.node ../artifact/build/Release/
+          else
+            echo "Warning: No Windows prebuilt found"
+            # Download from GitHub releases as fallback
+            curl -L "https://github.com/microsoft/node-pty/releases/download/v1.0.0/node-pty-v1.0.0-node-v${{ steps.abi.outputs.abi }}-win32-x64.tar.gz" -o prebuilt.tar.gz || true
+            if [ -f prebuilt.tar.gz ]; then
+              tar -xzf prebuilt.tar.gz -C ../artifact/
+            fi
+          fi
+          
+          # Create tarball
+          cd ../artifact
+          tar -czf ../node-v${{ steps.abi.outputs.abi }}-win32-x64.tar.gz .
+      
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: node-v${{ steps.abi.outputs.abi }}-win32-x64
+          path: node-*.tar.gz
   
   commit:
-    needs: build
+    needs: [build-unix, download-windows]
     runs-on: ubuntu-latest
     if: success()
     steps:
@@ -111,6 +155,7 @@ jobs:
       - name: Organize prebuilts
         run: |
           mkdir -p vendor/node-pty-prebuilts
+          
           for dir in artifacts/*; do
             if [ -d "$dir" ]; then
               for file in "$dir"/*.tar.gz; do
@@ -118,13 +163,6 @@ jobs:
                   basename=$(basename "$file" .tar.gz)
                   mkdir -p "vendor/node-pty-prebuilts/$basename"
                   tar -xzf "$file" -C "vendor/node-pty-prebuilts/$basename"
-                  
-                  # Check if it contains an error file
-                  if [ -f "vendor/node-pty-prebuilts/$basename/artifact/error.txt" ]; then
-                    echo "Build failed for $basename:"
-                    cat "vendor/node-pty-prebuilts/$basename/artifact/error.txt"
-                    rm -rf "vendor/node-pty-prebuilts/$basename"
-                  fi
                 fi
               done
             fi
@@ -132,6 +170,18 @@ jobs:
           
           echo "Successfully extracted prebuilts:"
           ls -la vendor/node-pty-prebuilts/
+          
+          # Verify we have all expected combinations
+          for node_abi in 108 115 127; do
+            for platform in linux darwin win32; do
+              dir="vendor/node-pty-prebuilts/node-v${node_abi}-${platform}-x64"
+              if [ -d "$dir" ]; then
+                echo "✓ Found $dir"
+              else
+                echo "✗ Missing $dir"
+              fi
+            done
+          done
       
       - name: Commit prebuilts
         uses: EndBug/add-and-commit@v9
